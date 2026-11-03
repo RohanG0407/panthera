@@ -45,8 +45,9 @@ them.
 
 This is not the supported setup. Library versions differ from the Nix pins,
 so results may not match a Nix build. It has been tested on Ubuntu 25.10
-arm64 (GCC 15.2, CMake 3.31, Boost 1.88, Python 3.13): every target builds,
-and 35 of 38 unit tests pass. The gaps are listed at the end of this section.
+arm64 (GCC 15.2, CMake 3.31, Boost 1.88, Python 3.13): every target builds
+and all 38 unit tests pass. The remaining gaps are listed at the end of this
+section.
 
 Install the Ubuntu packages:
 
@@ -55,8 +56,11 @@ sudo apt install build-essential cmake ninja-build pkgconf git xz-utils parallel
     libboost-all-dev python3-dev libprotobuf-dev protobuf-compiler libprotobuf-c-dev \
     libcapstone-dev libgtest-dev libgmock-dev nlohmann-json3-dev libimmer-dev \
     libglib2.0-dev python3-protobuf python3-capstone python3-sklearn python3-yaml \
-    python3-openpyxl
+    python3-openpyxl python3-urwid python3-seaborn
 ```
+
+`python3-urwid` is 2.6.16, the version Nix pins. It and `python3-seaborn`
+are needed by the catscan and report Python tests.
 
 Do not install `libfmt-dev`. Ubuntu ships fmt 10, Panthera needs fmt 11, and
 having both installed produced `fmt::v10`/`fmt::v11` redefinition errors.
@@ -89,6 +93,12 @@ install -D -m 755 espresso-logic-1.1/bin/espresso $D/bin/espresso
 # in nix/pkgs/qemu/default.nix.
 curl -fsSL -o $D/include/qemu-plugin.h --create-dirs \
     https://raw.githubusercontent.com/AmpereComputing/tracing-qemu/39724d94fbdba2200df959955fd49aec2b9e730b/include/qemu/qemu-plugin.h
+# check-jsonschema, for cheetah_json_config_specifications. Ubuntu's
+# python3-check-jsonschema (0.34.0) fails on import: it needs the `regress`
+# module, which Ubuntu does not package.
+python3 -m venv $D/venvs/check-jsonschema
+$D/venvs/check-jsonschema/bin/pip install check-jsonschema
+ln -s $D/venvs/check-jsonschema/bin/check-jsonschema $D/bin/
 ```
 
 The SystemC build also registers its build tree in `~/.cmake/packages`
@@ -119,15 +129,9 @@ make install JOBS=N "CMAKE_ARGS=-DCMAKE_PREFIX_PATH=$D -DQEMU_ROOT=$D -Dfmt_DIR=
 
 Gaps compared with the Nix environment:
 
-- Three unit tests need tools that are missing from the list above.
-  `panthera_catscan_python_test` needs `urwid`,
-  `panthera_report_python_test` needs `seaborn`, and
-  `cheetah_json_config_specifications` needs `check-jsonschema`. Ubuntu
-  packages them as `python3-urwid` (2.6.16, the version Nix pins),
-  `python3-seaborn` and `python3-check-jsonschema`, but installing them has
-  not been tested yet. Several rollup and report packages listed in
-  `nix/panthera.nix` (such as bokeh, holoviews, hvplot, panel and kaleido)
-  have no Ubuntu package.
+- Several rollup and report packages listed in `nix/panthera.nix` (such as
+  bokeh, holoviews, hvplot, panel and kaleido) have no Ubuntu package. No
+  unit test needs them.
 - `make check-format` needs clang-format 21 (Nix pins LLVM 21) and `ruff`.
   Ubuntu provides `clang-format-21`; the Makefile calls `clang-format`, so
   put `/usr/lib/llvm-21/bin` on `PATH`. `ruff` is not packaged, so install it
