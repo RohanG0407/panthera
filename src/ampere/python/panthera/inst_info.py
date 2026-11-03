@@ -344,7 +344,7 @@ def trans_is_release(trans) -> str:
 
 
 def trans_is_fusion_delay_hint(trans) -> str:
-    return "true" if getattr(trans, "fusion_delay_hint", False) == True else "false"
+    return "true" if getattr(trans, "fusion_delay_hint", False) else "false"
 
 
 def trans_mem_tag_checked(trans) -> str:

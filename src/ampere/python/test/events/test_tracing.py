@@ -33,7 +33,7 @@ class TestTracing(unittest.TestCase):
     def _event_matches(self, event, args, partial=False):
         if isinstance(args, dict):
             for k, v in args.items():
-                if not k in event:
+                if k not in event:
                     return False
                 matches = self._event_matches(event[k], v, partial=partial) if partial else event[k] == v
                 if not matches:
@@ -41,7 +41,7 @@ class TestTracing(unittest.TestCase):
 
         elif isinstance(args, set):
             for k in args:
-                if not k in event:
+                if k not in event:
                     return False
 
         elif callable(args):

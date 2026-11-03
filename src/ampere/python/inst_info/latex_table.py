@@ -19,7 +19,7 @@ def latex_fix(t: str):
 
 
 def longtable(rows: list[list[str]], header: list[str], caption: str, maxcolwidths: list[str] = None) -> str:
-    """This uses the longtable package, so \\usepackage{longtable} in
+    r"""This uses the longtable package, so \usepackage{longtable} in
     your document header. Do NOT wrap this longtable in figure (or
     other similar) environment or it will not be able to do page
     breaks for long tables.

@@ -669,7 +669,7 @@ def main():
             res_df["weight"] = args.weight
         return res_df
 
-    summary_df = results[results["correct"] == True].sum().to_frame().T
+    summary_df = results[results["correct"].eq(True)].sum().to_frame().T
     if args.summary_output:
         add_classifiers(summary_df).to_csv(args.summary_output)
     if args.detailed_output:

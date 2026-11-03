@@ -91,7 +91,7 @@ def find_best_checkpoint(checkpoint_array, instr_count, allowed_lateness=0):
     for checkpoint in checkpoint_array:
         instrs = int(checkpoint["instr_count"])
         if instrs <= instr_count + allowed_lateness:
-            if best_checkpoint == None or instrs > best_checkpoint_count:
+            if best_checkpoint is None or instrs > best_checkpoint_count:
                 best_checkpoint = checkpoint["tag"]
                 best_checkpoint_count = instrs
 

@@ -119,7 +119,7 @@ def main():
             # command-lines are two stages of the same operation, so the second
             # depends upon the output from the first, unlike the remainder of
             # the SPEC2017 benchmarks
-            if benchmark == "525.x264" and cmdline_num is 2:
+            if benchmark == "525.x264" and cmdline_num == 2:
                 first_cmd = cmdlines[len(cmdlines) - 2]
                 assert first_cmd["benchmark"] == "525.x264"
                 assert first_cmd["cmdline_num"] == "1"

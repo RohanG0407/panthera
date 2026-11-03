@@ -219,7 +219,7 @@ def gen_ooc(in_df):
 
     out_df["ooc_pct"] = (out_df["out_of_credits"] / (out_df["out_of_credits"] + out_df["acquire"])) * 100.0
     out_df.reset_index(inplace=True)
-    out_df = out_df[out_df["link"].str.contains("memory") == False]
+    out_df = out_df[out_df["link"].str.contains("memory").eq(False)]
 
     out_df[["die", "link", "chan"]] = out_df["link"].apply(rename_ooc_link)
     out_df = out_df.pivot(index=["die", "link"], columns="chan", values="ooc_pct").fillna(0)

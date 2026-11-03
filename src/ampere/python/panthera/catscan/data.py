@@ -195,7 +195,7 @@ class EventData:
         return self._max_per_time
 
     def __getitem__(self, key):
-        if type(key) == slice:
+        if isinstance(key, slice):
             max_step = 1 if key.step is None else key.step
             assert isinstance(max_step, int) and max_step != 0
             reverse = max_step < 0
