@@ -450,23 +450,20 @@ def _process_pmu_event_list(trans) -> tuple[str, ...]:
 
 def trans_instr_pmu(trans) -> tuple[str, ...]:
     """Create a tuple of PMU events using pmu.h names from the xlat pmu_bucket."""
-    cls = trans.__class__  # for debugging
     lst = tuple()
     if hasattr(trans, "pmu_events"):
         # has priority over older pmu_bucket variable
         lst = _process_pmu_event_list(trans)
-        # print(f'pmulst cls {str(cls):20} {lst}', file=sys.stderr)
+        # print(f'pmulst cls {str(trans.__class__):20} {lst}', file=sys.stderr)
     elif hasattr(trans, "pmu_bucket"):
         # retaining this for backwards compatability with older xlat if ever needed.
         lst = _process_pmu_bucket(trans)
-        # print(f'pmubuckt cls {str(cls):20} {lst}', file=sys.stderr)
+        # print(f'pmubuckt cls {str(trans.__class__):20} {lst}', file=sys.stderr)
     return lst  # may be an empty tuple
 
 
 def trans_instr_movprfx(trans) -> tuple[bool, bool]:
     """Return a tuple of bools indicating if we can fuse with movprfx predicated or movprfx unpredicated"""
-    cls = trans.__class__  # for debugging
-    lst = tuple()
     can_fuse_movprfx_predicated = False
     can_fuse_movprfx_unpredicated = False
     if hasattr(trans, "movprfx_fusion"):
@@ -524,7 +521,6 @@ def build_inst_info() -> dict:  # EXTERNAL ENTRY
             continue
 
         pattern = trans.pattern
-        cls = trans.__class__.__name__
 
         br_type = branch_detector.branch_type(pattern)
         barrier_type = barrier_detector.barrier_type(pattern)

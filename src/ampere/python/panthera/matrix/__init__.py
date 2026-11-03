@@ -52,7 +52,6 @@ def gen_utilization(in_df, ccl_clk_period=500, iod_clk_period=500):
     """
     time_delta = (in_df["stop_time"] - in_df["start_time"]).values[0]
     ccl_cycles = time_delta / ccl_clk_period
-    iod_cycles = time_delta / iod_clk_period
 
     out_dfs = []
 
@@ -95,7 +94,7 @@ def gen_utilization(in_df, ccl_clk_period=500, iod_clk_period=500):
 
     for die in die_set:
         # FIXME: the expression below is probably wrong for the new Domino
-        cycles = ccl_cycles  # iod_cycles if die == 0 else ccl_cycles
+        cycles = ccl_cycles  # die 0 (IOD) would use time_delta / iod_clk_period
 
         chan_dfs = []
 

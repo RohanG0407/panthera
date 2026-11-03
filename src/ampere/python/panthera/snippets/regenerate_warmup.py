@@ -58,7 +58,6 @@ def main():
             # enough to run *something*)
             panthera = os.path.join(install_dir, "bin", "panthera")
             amperesys = os.path.join(install_dir, "bin", "amperesys")
-            domino_cfg = os.path.join(install_dir, "config", "model", "sys", "domino.cfg")
             rtl_domino_cfg = os.path.join(install_dir, "config", "model", "sys", "domino-core-rtl.cfg")
             is_dir, is_base = os.path.split(os.path.join(args.release_dir, trace["file"]))
             is_stem = Path(Path(is_base).resolve().stem).stem

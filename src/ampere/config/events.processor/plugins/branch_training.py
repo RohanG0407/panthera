@@ -27,10 +27,8 @@ class BranchTraining(TransactionTracker):
 
         inum = self.get_tx_data(event.data["txid"], "inum", search_parents=True)
 
-        br_target = event.data["br_target"]
         taken = event.data["br_taken"] == 1
         mispredicted = event.data["br_mispredicted"] == 1
-        use_alternate = event.data["br_use_alternate"] == 1
         primary_predictor = event.data["br_primary_predictor"].split(".")[-1]
         alternate_predictor = event.data["br_alternate_predictor"].split(".")[-1]
 

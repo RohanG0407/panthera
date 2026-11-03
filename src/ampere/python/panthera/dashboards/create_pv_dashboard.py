@@ -130,11 +130,6 @@ def draw_verify_tab(bb):
     return get_verify_table(bb)
 
 
-def draw_idle_lat_tab():
-    lat_breakdown_df = data.get("req2_req_latencysummary", experiment="bb")
-    pass
-
-
 def main():
     parser = argparse.ArgumentParser(description="Generate PV Dashboard HTML file.")
     parser.add_argument("-o", "--output", type=str, help="Output html filename", required=True)
@@ -155,7 +150,6 @@ def main():
     top = pn.Tabs()
     top.append(("Verify Table", draw_verify_tab(bb)))
     top.append(("BW/Lat", draw_lat_bb_tab(bb)))
-    # top.append(("Idle Latency", draw_idle_lat_tab()))
 
     top.servable(title="Matrix Performance Validation")
     top.save(args.output, title="Matrix PV", resources="inline", embed=True)

@@ -50,10 +50,8 @@ def read_xls(input_xls: str) -> List[dict]:
 def write_xls(output_xls: str, recs: List[dict]):
     red = "00FF0000"
     pink = "00FFC0CB"
-    green = "0000FF00"
     spring_green = "0000FF7F"
     light_blue = "0099CCFF"
-    yellow = "00FFFF00"
 
     thin_border = Border(
         left=Side(style="thin"), right=Side(style="thin"), top=Side(style="thin"), bottom=Side(style="thin")
@@ -112,13 +110,10 @@ def parse_args():
 def update_section_group(ntuple_fields: int, recs: List[dict]):
     """Copy section and group from the older DELETED records to the
     newly created records, if they have nothing already."""
-    headers = list(recs[0].keys())
-    tuple_headers = headers[0:ntuple_fields]
     sec_group = collections.defaultdict(set)
     sections_count = collections.defaultdict(set)
     groups_count = collections.defaultdict(set)
     for rec in recs:
-        rec_tvals = tuple([rec[v] for v in tuple_headers])
         if rec["Status"] == "DELETED":
             cls = rec["Class"]
             sec_group[cls].add((rec["Section"], rec["Group"]))
