@@ -6,7 +6,7 @@ import evp
 
 def say_hello():
     """hello_to is a global that should be set by evp from the command line"""
-    print(f"hello {hello_to}")
+    print(f"hello {hello_to}")  # noqa: F821 (evp variable, set with -s hello_to=<name>)
 
 
 evp.end_simulation(say_hello)

@@ -68,6 +68,6 @@ class BranchMispredictions(TransactionTracker):
 parser = argparse.ArgumentParser()
 parser.add_argument("--filename", default="branch_mispredictions.log")
 parser.add_argument("--max-pcs", type=int, default=20)
-args = parser.parse_args(evp_args)
+args = parser.parse_args(evp_args)  # noqa: F821 (set by the evp python plugin)
 
 BranchMispredictions(args.filename, args.max_pcs)

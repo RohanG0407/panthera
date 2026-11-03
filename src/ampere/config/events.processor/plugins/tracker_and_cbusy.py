@@ -16,11 +16,11 @@ def hnf_name(event_name):
         return event_name
 
 
-cbusy_csv = open(f"{output_dir}/cbusy.csv", "w")
+cbusy_csv = open(f"{output_dir}/cbusy.csv", "w")  # noqa: F821 (evp variable, set with -s output_dir=<dir>)
 print("time,hnf,high,low,max_outstanding_requests,outstanding_requests", file=cbusy_csv)
 
 
-tracker_csv = open(f"{output_dir}/tracker.csv", "w")
+tracker_csv = open(f"{output_dir}/tracker.csv", "w")  # noqa: F821 (evp variable, set with -s output_dir=<dir>)
 print("time,hnf,tracker_entries", file=tracker_csv)
 
 

@@ -12,6 +12,6 @@ def mem_name(event_name):
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--output", default="mem_occupancy.csv")
-args = parser.parse_args(evp_args)
+args = parser.parse_args(evp_args)  # noqa: F821 (set by the evp python plugin)
 
 Occupancy("*.memory_#.retry.alloc", "*.memory_#.retry.dealloc", args.output, "mem", "memory occupancy", rename=mem_name)

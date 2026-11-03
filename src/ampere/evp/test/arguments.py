@@ -7,7 +7,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("location")
 parser.add_argument("--time")
 parser.add_argument("--hello", action="store_true")
-args = parser.parse_args(evp_args)
+args = parser.parse_args(evp_args)  # noqa: F821 (set by the evp python plugin)
 
 greeting = "Goodbye"
 if args.hello:

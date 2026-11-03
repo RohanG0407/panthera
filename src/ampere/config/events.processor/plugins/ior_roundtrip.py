@@ -10,7 +10,7 @@ from plugins.common.latency import Latency
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--latency-ior", default=0, help="The ior that is running latency thread")
-args = parser.parse_args(evp_args)
+args = parser.parse_args(evp_args)  # noqa: F821 (set by the evp python plugin)
 lat_ior = args.latency_ior
 
 

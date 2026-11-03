@@ -54,7 +54,7 @@ def main():
         default=[],
         help="The PC of the branches to track (defaults to all branches if not supplied",
     )
-    args = parser.parse_args(evp_args)
+    args = parser.parse_args(evp_args)  # noqa: F821 (set by the evp python plugin)
     BranchTraining(args.branch_pc)
 
 

@@ -30,6 +30,6 @@ class CBusySend:
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--output", default="cbusy_send.csv")
-args = parser.parse_args(evp_args)
+args = parser.parse_args(evp_args)  # noqa: F821 (set by the evp python plugin)
 
 CBusySend(args.output)

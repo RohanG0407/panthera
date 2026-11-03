@@ -175,6 +175,6 @@ parser.add_argument(
     help="Only print transactions that start from the injector with opcode. [ReadShared, WriteEvictOrEvict, ...]",
 )
 parser.add_argument("--output", type=str, default="latency_flow.log")
-args = parser.parse_args(evp_args)
+args = parser.parse_args(evp_args)  # noqa: F821 (set by the evp python plugin)
 
 LatencyFlow(args.output, args.start_transaction)

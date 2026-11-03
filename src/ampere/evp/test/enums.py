@@ -44,7 +44,7 @@ parser.add_argument("event")
 parser.add_argument("--eq")
 parser.add_argument("--expect-enum", action="append")
 parser.add_argument("--expand-enums", action="store_true")
-args = parser.parse_args(evp_args)
+args = parser.parse_args(evp_args)  # noqa: F821 (set by the evp python plugin)
 
 expand_enumerations = args.expand_enums
 expect_enumerations = args.expect_enum
