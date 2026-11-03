@@ -245,18 +245,20 @@ add_library(json ALIAS nlohmann_json::nlohmann_json)
 find_package(Immer REQUIRED)
 target_compile_options(immer INTERFACE -Wno-array-bounds)
 
-# Capstone package
+# Capstone package. Panthera uses the pre-6 AArch64 API (CS_ARCH_ARM64,
+# ARM64_INS_*), which capstone 6 renamed, so a newer capstone that happens to be
+# on the CMake search path (e.g. under ~/.local) must not be picked up.
 find_package(capstone QUIET)
-if(NOT capstone_FOUND)
-    pkg_check_modules(CAPSTONE REQUIRED IMPORTED_TARGET capstone)
-    if(NOT CAPSTONE_FOUND)
-        message(FATAL_ERROR "Unable to find capstone")
-    endif()
-    add_library(capstone ALIAS PkgConfig::CAPSTONE)
-    add_library(capstone-static ALIAS PkgConfig::CAPSTONE)
-else()
+if(capstone_FOUND AND capstone_VERSION VERSION_LESS 6 AND TARGET capstone::capstone)
     add_library(capstone ALIAS capstone::capstone)
     add_library(capstone-static ALIAS capstone::capstone)
+else()
+    if(capstone_FOUND)
+        message(STATUS "Ignoring capstone ${capstone_VERSION} in ${capstone_DIR} (need < 6); trying pkg-config")
+    endif()
+    pkg_check_modules(CAPSTONE REQUIRED IMPORTED_TARGET "capstone<6")
+    add_library(capstone ALIAS PkgConfig::CAPSTONE)
+    add_library(capstone-static ALIAS PkgConfig::CAPSTONE)
 endif()
 
 # Fmt package
