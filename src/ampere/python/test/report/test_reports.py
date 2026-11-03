@@ -16,7 +16,7 @@ class TestReportsMeta(type):
             "bpu_idle_cycles",  # metrics
             "commit_delay",  # metrics
             "commit_delay_trace",  # metrics
-            "drift",  # configs
+            "drift",  # configs, data files (see test_drift_report.py)
             "ixu_pipe",  # metrics
             "pmus",  # timeout likely
             "pmus_furiosa",  # timeout likely

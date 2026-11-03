@@ -9,8 +9,7 @@ frequency = 3000000000
 
 
 def speedup(df, base, value):
-    grouped = df.groupby(CONFIGURATION).mean()
-    ipc = grouped["sys.soc_0.core_0.ipc"].reset_index()
+    ipc = df.groupby(CONFIGURATION)["sys.soc_0.core_0.ipc"].mean().reset_index()
 
     date_config = ipc.configuration.str.split(".", expand=True)
 
@@ -77,7 +76,7 @@ def compute_drift(df, suite, product, compiler, rate):
         marker="o",
     )
     create_csv(geomean, filename=f"spec2017_{suite}{compiler}_rate_{rate}_mean_speedup.csv")
-    geomean.index = geomean.index.str.replace("\..*", "")
+    geomean.index = geomean.index.str.replace(r"\..*", "", regex=True)
     return geomean
 
 
