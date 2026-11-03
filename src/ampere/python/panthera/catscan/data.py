@@ -683,6 +683,9 @@ class EventStreamDataView:
             self._view = view
             self._next_index = 0
 
+        def __iter__(self):
+            return self
+
         def __next__(self):
             if self._next_index < len(self._view._keys):
                 next_key = self._view._keys[self._next_index]
