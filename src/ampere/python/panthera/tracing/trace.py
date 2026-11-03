@@ -58,7 +58,7 @@ def run(
         qemu_args["plugin"] += "skip-async=true,"
 
     if trace_everything:
-        qemu_args["plugin"] += f"start-tracing-after-instructions=1,"
+        qemu_args["plugin"] += "start-tracing-after-instructions=1,"
     else:
         if start_offline_warmup_after_instructions is not None:
             qemu_args["plugin"] += f"start-tracing-after-instructions={start_offline_warmup_after_instructions},"

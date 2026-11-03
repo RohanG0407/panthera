@@ -11,7 +11,7 @@ class CBusySend:
         super().__init__()
 
         self.output = open(output, "w")
-        print(f"time,completer,rho,state,occupancy", file=self.output)
+        print("time,completer,rho,state,occupancy", file=self.output)
 
         evp.on("*.cbusy_send", lambda e: self._cbusy_send(e))
         evp.end_simulation(lambda: self.end_simulation())

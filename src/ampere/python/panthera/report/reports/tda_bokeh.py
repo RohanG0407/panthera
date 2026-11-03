@@ -108,7 +108,7 @@ if len(configurations) > 1:
         ############################################################################
         # Generate top-level scatter combining all L1 metrics into one
         ############################################################################
-        print(f'Generating L1 "wind plot"...')
+        print('Generating L1 "wind plot"...')
 
         l1_tda = ["tda.l1.frontend", "tda.l1.backend", "tda.l1.lost", "tda.l1.retired"]
         pivot_df = df.pivot_table(values=l1_tda, index=[idx], columns=[CONFIGURATION])
@@ -150,8 +150,8 @@ if len(configurations) > 1:
         p.line([0, 1], [0, 1], line_width=1, color="grey")
         # Show circles for comparison_config, colored by change in retiring slots from base_config
         p.scatter(
-            x=f"tda.l1.frontend",
-            y=f"tda.l1.backend",
+            x="tda.l1.frontend",
+            y="tda.l1.backend",
             name="scatter",
             source=source,
             color={"field": "tda.l1.retired_delta", "transform": color_mapper},
@@ -173,7 +173,7 @@ if len(configurations) > 1:
         cb = ColorBar(color_mapper=color_mapper, title="Change in tda.l1.retired")
         p.add_layout(cb, "right")
 
-        title = Div(text=f'<h2>TDA L1 "Wind Plot"</h2>')
+        title = Div(text='<h2>TDA L1 "Wind Plot"</h2>')
         figures.append(column(title, p))
 
         ############################################################################

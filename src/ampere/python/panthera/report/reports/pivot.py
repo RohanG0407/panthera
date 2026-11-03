@@ -209,7 +209,7 @@ def df_to_xl(pivot_df, outputfile, idx):
     excel_filename = make_filepath(outputfile + ".xlsx", "pivot_table_", idx)
     print(f"writing Excel file {excel_filename}")
     excel_writer = pd.ExcelWriter(excel_filename, engine="xlsxwriter")
-    pivot_df.to_excel(excel_writer, sheet_name=f"pivoted")
+    pivot_df.to_excel(excel_writer, sheet_name="pivoted")
     excel_writer.close()
 
     # read modify and write the xl file again for some minor tuning

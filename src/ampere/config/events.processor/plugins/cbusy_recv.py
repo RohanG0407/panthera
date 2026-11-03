@@ -11,7 +11,7 @@ class CBusyRecv:
         super().__init__()
 
         self.output = open(output, "w")
-        print(f"time,requester,limit,outstanding,acc,cbusy_idx", file=self.output)
+        print("time,requester,limit,outstanding,acc,cbusy_idx", file=self.output)
 
         evp.on("*.cbusy.update", lambda e: self._cbusy_recv(e))
         evp.end_simulation(lambda: self.end_simulation())

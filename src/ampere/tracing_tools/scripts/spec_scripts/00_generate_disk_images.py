@@ -50,10 +50,10 @@ def dir_to_ext4_qcow(from_dir, to_qcow, rootfs_size="250G"):
 
     # Use nbd to mount the qcow image in loopback mode and create ext4 rootfs
     # from contents of from_dir
-    run(f"modprobe nbd")
+    run("modprobe nbd")
     run(f"qemu-nbd --connect /dev/nbd0 {to_qcow}.orig")
     run(f"mkfs.ext4 -d {from_dir} -L rootfs /dev/nbd0")
-    run(f"qemu-nbd --disconnect /dev/nbd0")
+    run("qemu-nbd --disconnect /dev/nbd0")
 
     # Shrink/compress image, remove uncompressed version
     run(f"qemu-img convert -O qcow2 -o nocow=on -c {to_qcow}.orig {to_qcow}")

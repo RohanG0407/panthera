@@ -18,7 +18,7 @@ def print_py_enum(tab, output):
         if str(item) == "None":
             item = "NONE"
         print(f"    {item} = {value}", file=output)
-    print(f"\n    def __str__(self):\n        return self.name", file=output)
+    print("\n    def __str__(self):\n        return self.name", file=output)
     if "event_data" in tab.vars:
         print(
             f"\n    @staticmethod\n    def event_data_name():\n        return '{tab.vars['event_data']['name']}'\n",

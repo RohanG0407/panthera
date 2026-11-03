@@ -11,7 +11,7 @@ class CBusyUtilization:
         super().__init__()
 
         self.output = open(output, "w")
-        print(f"time,completer,rho,phase,allocates,deallocates", file=self.output)
+        print("time,completer,rho,phase,allocates,deallocates", file=self.output)
 
         evp.on("*.snapshot_rho", lambda e: self._cbusy_util(e))
         evp.end_simulation(lambda: self.end_simulation())
