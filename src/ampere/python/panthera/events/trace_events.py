@@ -617,14 +617,17 @@ class TransactionBuffer(TraceEventStream):
             self.process(transaction)
 
     def process(self, transaction):
+        events = list(self.find_events(transaction))
         if self.field == "FREE":
-            buffer_id = self._free_row_tracker.reserve(start_time, end_time)
+            # Reuse a row whose last transaction ended before this one starts
+            if not events:
+                return
+            buffer_id = self._free_row_tracker.reserve(events[0].time, events[-1].time)
         else:
             buffer_id = self.find_data(transaction, self.field)
         if buffer_id is None:
             return
         self.transactions[transaction.txid] = transaction
-        events = list(self.find_events(transaction))
 
         if not events:
             return
@@ -632,7 +635,6 @@ class TransactionBuffer(TraceEventStream):
         first_event = events[0]
         last_event = events[-1]
         start_time = first_event.time
-        end_time = last_event.time
 
         duration = last_event.time + self.period - start_time
         args = {"txid": first_event.data["txid"]}

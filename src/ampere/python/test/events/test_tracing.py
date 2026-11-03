@@ -230,6 +230,25 @@ class TestTracing(unittest.TestCase):
         self.assertFalse(self.event_exists(trace, "start_transaction"))
         self.assertFalse(self.event_exists(trace, "end_transaction"))
 
+    def test_transaction_view_free_rows(self):
+        trace = self.trace_events(
+            "--view", "transactions",
+            "--tx_index", "FREE",
+            "--tx_start", "core.idr.uop_decode",
+            "--tx_end", "core.gpc.rob_dealloc",
+        )  # fmt: skip
+
+        tx_events = sorted(
+            (e for e in trace if "FREE" in e.get("args", {})),
+            key=lambda e: (e["tid"], e["ts"]),
+        )
+        self.assertTrue(tx_events)
+        rows = {e["tid"] for e in tx_events}
+        self.assertLess(len(rows), len(tx_events), "rows should be reused")
+        for before, after in zip(tx_events, tx_events[1:]):
+            if before["tid"] == after["tid"]:
+                self.assertGreaterEqual(after["ts"], before["ts"] + before["dur"])
+
     def test_period(self):
         trace = self.trace_events("--period", "400", "--event", "core.icf.iq_write")
         events = self.find(trace, tid=1, cat="none")
