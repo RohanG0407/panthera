@@ -230,6 +230,18 @@ class TestTracing(unittest.TestCase):
         self.assertFalse(self.event_exists(trace, "start_transaction"))
         self.assertFalse(self.event_exists(trace, "end_transaction"))
 
+    def test_transaction_view_without_start_or_end(self):
+        trace = self.trace_events(
+            "--view", "transactions",
+            "--tx_size", "128",
+            "--tx_index", "core.idr.alloc_id",
+            "--event", "core.idr.uop_dispatch",
+            "--event", "core.ixu.uop_issue",
+        )  # fmt: skip
+
+        tx_events = self.find_partial(trace, args={"core.idr.alloc_id"}, dur=lambda d: d > 0)
+        self.assertTrue(tx_events)
+
     def test_transaction_view_free_rows(self):
         trace = self.trace_events(
             "--view", "transactions",
