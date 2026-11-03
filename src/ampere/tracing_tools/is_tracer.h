@@ -652,7 +652,7 @@ private:
             return;
 
         size_t read_size = 0;
-        uint64_t read_start_pa;
+        uint64_t read_start_pa = 0;
         bool read_start_pa_set = false;
 
         /* traverse each byte from pa to pa+size, collecting unwritten bytes to
