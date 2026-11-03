@@ -13,7 +13,8 @@ architecture that takes several files to piece together.
 
 - Configure and build inside the Nix shell (`direnv allow` once per checkout).
   CMake caches `USE_NIX` and fails if a build directory configured inside Nix
-  is reused outside it (or the reverse).
+  is reused outside it (or the reverse). For a host without Nix, see
+  [Building without Nix](#building-without-nix).
 - The Makefile records the merge-base with `origin/main` in each build
   directory and passes `--fresh` to CMake when it changes, so the first build
   after a rebase or fetch reconfigures from scratch. `CMAKE_ALWAYS_FRESH=0`
@@ -39,6 +40,98 @@ for the Python package in `src/ampere/python/panthera/`. Its commands include
 `sim`, `cheetah` (batch studies, Slurm support), `rollup`, `report`,
 `catscan`, `events.*` and `tracing.*`. Running it with no arguments lists
 them.
+
+## Building without Nix
+
+This is not the supported setup. Library versions differ from the Nix pins,
+so results may not match a Nix build. It has been tested on Ubuntu 25.10
+arm64 (GCC 15.2, CMake 3.31, Boost 1.88, Python 3.13): every target builds,
+and 35 of 38 unit tests pass. The gaps are listed at the end of this section.
+
+Install the Ubuntu packages:
+
+```bash
+sudo apt install build-essential cmake ninja-build pkgconf git xz-utils parallel \
+    libboost-all-dev python3-dev libprotobuf-dev protobuf-compiler libprotobuf-c-dev \
+    libcapstone-dev libgtest-dev libgmock-dev nlohmann-json3-dev libimmer-dev \
+    libglib2.0-dev python3-protobuf python3-capstone python3-sklearn python3-yaml \
+    python3-openpyxl
+```
+
+Do not install `libfmt-dev`. Ubuntu ships fmt 10, Panthera needs fmt 11, and
+having both installed produced `fmt::v10`/`fmt::v11` redefinition errors.
+
+Build the remaining dependencies from source into a single prefix:
+
+```bash
+D=$HOME/.local/panthera-deps
+# SystemC 2.3.3 (accellera.org). C++11, as in nix/pkgs/systemc, to match
+# Panthera's -DSC_CPLUSPLUS=201103L.
+cmake -S systemc-2.3.3 -B systemc-build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_CXX_STANDARD=11 -DCMAKE_INSTALL_PREFIX=$D
+ninja -C systemc-build install
+# fmt 11.0.2 (fmtlib/fmt tag 11.0.2).
+cmake -S fmt-11.0.2 -B fmt-build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_SHARED_LIBS=ON -DFMT_TEST=OFF -DFMT_DOC=OFF -DCMAKE_INSTALL_PREFIX=$D
+ninja -C fmt-build install
+# keystone 0.9.2 (keystone-engine/keystone tag 0.9.2). Its bundled LLVM uses
+# intptr_t without <cstdint>, which GCC 13 and later no longer include
+# transitively.
+cmake -S keystone-0.9.2 -B keystone-build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_SHARED_LIBS=ON -DCMAKE_CXX_FLAGS="-include cstdint" \
+    -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_INSTALL_PREFIX=$D
+ninja -C keystone-build install
+# espresso 1.1 (classabbyamp/espresso-logic tag 1.1). K&R C, which GCC 15's
+# default of C23 rejects.
+make -C espresso-logic-1.1/espresso-src CFLAGS="-std=gnu89 -O2 -w"
+install -D -m 755 espresso-logic-1.1/bin/espresso $D/bin/espresso
+# qemu-plugin.h only, from AmpereComputing/tracing-qemu at the revision pinned
+# in nix/pkgs/qemu/default.nix.
+curl -fsSL -o $D/include/qemu-plugin.h --create-dirs \
+    https://raw.githubusercontent.com/AmpereComputing/tracing-qemu/39724d94fbdba2200df959955fd49aec2b9e730b/include/qemu/qemu-plugin.h
+```
+
+The SystemC build also registers its build tree in `~/.cmake/packages`
+(under `SystemCLanguage/` and `SystemCTLM/`). Delete those two entries so
+CMake finds the installed copy rather than a build directory that may later
+be removed.
+
+Configure and build:
+
+```bash
+export PATH=$D/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+make install JOBS=N "CMAKE_ARGS=-DCMAKE_PREFIX_PATH=$D -DQEMU_ROOT=$D -Dfmt_DIR=$D/lib/cmake/fmt"
+```
+
+- Use this minimal `PATH` so that per-user installs cannot shadow the system
+  tools. Watch for two cases in particular. A `pkgconf` that searches only
+  its own prefix hides glib. A per-user capstone 6 is not API-compatible: Nix
+  pins capstone 4, and Ubuntu's 5.0.6 works.
+- Pass the same `CMAKE_ARGS` to every `make` target (`unit-test`, `test`,
+  `build-debug` and so on). The Makefile reconfigures on each call and adds
+  `--fresh` when the `origin/main` merge-base moves, which drops the cached
+  paths.
+- `archx_raw` precompiles a header that pulls in `fmt/core.h`. Installing a
+  library into an include directory that is already on the search path does
+  not rebuild that PCH. After changing which fmt the build finds, run
+  `ninja -C cmake-build-release -t clean` and then rebuild.
+- A debug build uses about 55 GB of disk; a release build uses about 23 GB.
+
+Gaps compared with the Nix environment:
+
+- Three unit tests need tools that are missing from the list above.
+  `panthera_catscan_python_test` needs `urwid`,
+  `panthera_report_python_test` needs `seaborn`, and
+  `cheetah_json_config_specifications` needs `check-jsonschema`. Ubuntu
+  packages them as `python3-urwid` (2.6.16, the version Nix pins),
+  `python3-seaborn` and `python3-check-jsonschema`, but installing them has
+  not been tested yet. Several rollup and report packages listed in
+  `nix/panthera.nix` (such as bokeh, holoviews, hvplot, panel and kaleido)
+  have no Ubuntu package.
+- `make check-format` needs clang-format 21 (Nix pins LLVM 21) and `ruff`.
+  Ubuntu provides `clang-format-21`; the Makefile calls `clang-format`, so
+  put `/usr/lib/llvm-21/bin` on `PATH`. `ruff` is not packaged, so install it
+  with pip.
 
 ## Architecture
 
