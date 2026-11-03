@@ -5,7 +5,7 @@ import os
 import unittest
 
 from panthera.streams import instruction_stream_pb2 as is_proto
-from panthera.streams.instruction_stream import *
+from panthera.streams.instruction_stream import InstructionStreamReader, InstructionStreamWriter
 
 test_dir = os.path.dirname(__file__)
 

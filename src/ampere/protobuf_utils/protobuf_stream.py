@@ -10,7 +10,7 @@ try:
 except:
     from backports import lzma
 
-from panthera.streams.protobuf_utils import *
+from panthera.streams.protobuf_utils import SIZE_STRUCT, read_header_from, write_delimited_to, write_header_to
 
 
 class ProtobufStreamReader(object):

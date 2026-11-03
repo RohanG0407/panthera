@@ -4,7 +4,7 @@
 import re
 import unittest
 
-from panthera.catscan.util import *
+from panthera.catscan.util import even_odd, even_odd_focused, glob_to_pattern, hex_args_to_re, str_fit_width, str_width
 
 
 class TestUtil(unittest.TestCase):

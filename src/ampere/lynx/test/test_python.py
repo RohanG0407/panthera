@@ -3,7 +3,7 @@
 
 import unittest
 
-from panthera.lynx import *
+from panthera.lynx import Accumulator, Component, ComponentType, Location, Model, Opcode, Rules
 
 
 def add_tile(model: Model, die_id: int, x: int, y: int, devs=()):

@@ -6,7 +6,7 @@ import unittest
 from os.path import abspath, dirname, join
 
 import panthera.events.trace_events
-from panthera.catscan.data import *
+from panthera.catscan.data import get_event_data, trace_events
 from panthera.events import matching_spec, rename_spec
 from panthera.events.mapping import Mapper
 
