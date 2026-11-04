@@ -157,37 +157,27 @@ endif()
 # Protobuf is used by event stream
 find_package(Protobuf REQUIRED)
 
+# Build against the first Python 3 found (the Nix shell's, or the system's
+# outside Nix) and the Boost.Python built for that same version. Probing each
+# Boost.Python version with find_package(Python3 <version> EXACT) does not work
+# when another interpreter is visible: FindPython keeps the first interpreter it
+# finds (e.g. the host's /usr/bin/python3.13 inside the Nix shell), so every
+# later version probe fails as well.
 set(MINIMUM_PYTHON_VERSION 3.10)
-# Older boost cmake versions prefer smaller versions first
-set(BOOST_OPTIONAL_PYTHON_VERSIONS python310 python311 python312 python313)
+find_package(Python3 ${MINIMUM_PYTHON_VERSION} REQUIRED COMPONENTS Interpreter Development)
+set(BOOST_PYTHON_COMPONENT python${Python3_VERSION_MAJOR}${Python3_VERSION_MINOR})
 
 # FIXME: after cmake 3.29 FindBoost is no longer provided by CMake.
 # Since we currently use this, we use the OLD policy. But we need
 # to verify that it works with the NEW policy before updating this.
 cmake_policy(SET CMP0167 OLD)
-find_package(Boost 1.65.0 REQUIRED COMPONENTS filesystem iostreams program_options regex system OPTIONAL_COMPONENTS ${BOOST_OPTIONAL_PYTHON_VERSIONS} serialization)
+find_package(Boost 1.65.0 REQUIRED COMPONENTS filesystem iostreams program_options regex system OPTIONAL_COMPONENTS ${BOOST_PYTHON_COMPONENT} serialization)
 
-list(REVERSE BOOST_OPTIONAL_PYTHON_VERSIONS)
-foreach(python_version ${BOOST_OPTIONAL_PYTHON_VERSIONS})
-    string(TOUPPER ${python_version} component_version)
-    if(Boost_${component_version}_FOUND)
-        if(python_version MATCHES "python3.+")
-            string(REGEX REPLACE "python3(.+)" "3.\\1" version ${python_version})
-            find_package(Python3 ${version} EXACT QUIET COMPONENTS Interpreter Development)
-            if(NOT Python3_FOUND)
-                continue()
-            endif()
-        else()
-            find_package(Python3 ${MINIMUM_PYTHON_VERSION} QUIET COMPONENTS Interpreter Development)
-        endif()
-        set(BOOST_PYTHON_COMPONENT_NAME Boost::${python_version})
-        break()
-    endif()
-endforeach()
-
-if(NOT DEFINED BOOST_PYTHON_COMPONENT_NAME)
-    message(FATAL_ERROR "Failed to find Boost python library")
+string(TOUPPER ${BOOST_PYTHON_COMPONENT} BOOST_PYTHON_COMPONENT_UPPER)
+if(NOT Boost_${BOOST_PYTHON_COMPONENT_UPPER}_FOUND)
+    message(FATAL_ERROR "Failed to find Boost.Python for Python ${Python3_VERSION} (${Python3_EXECUTABLE})")
 endif()
+set(BOOST_PYTHON_COMPONENT_NAME Boost::${BOOST_PYTHON_COMPONENT})
 
 if(Boost_SERIALIZATION_FOUND)
     add_compile_definitions(USE_BOOST_SERIALIZATION)
