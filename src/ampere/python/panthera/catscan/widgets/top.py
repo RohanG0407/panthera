@@ -826,7 +826,7 @@ class Top(urwid.widget.Widget):
                 search_rows += matching_rows
 
         if search_mask and match_type not in (MatchType.AUTO, MatchType.INT):
-            return self.add_message(f"search: cannot apply integer search mask when searching for a string")
+            return self.add_message("search: cannot apply integer search mask when searching for a string")
 
         try:
             search_term = int(search_term, base=0)
@@ -1359,7 +1359,7 @@ class Top(urwid.widget.Widget):
         for cmd in commands:
             if not self.command(cmd):
                 self.add_message(
-                    f"Failed to execute any remaining `--eval` commands after one command failed to execute"
+                    "Failed to execute any remaining `--eval` commands after one command failed to execute"
                 )
                 return False
         return True

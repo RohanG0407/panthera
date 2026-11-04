@@ -27,10 +27,8 @@ class BranchTraining(TransactionTracker):
 
         inum = self.get_tx_data(event.data["txid"], "inum", search_parents=True)
 
-        br_target = event.data["br_target"]
         taken = event.data["br_taken"] == 1
         mispredicted = event.data["br_mispredicted"] == 1
-        use_alternate = event.data["br_use_alternate"] == 1
         primary_predictor = event.data["br_primary_predictor"].split(".")[-1]
         alternate_predictor = event.data["br_alternate_predictor"].split(".")[-1]
 
@@ -54,7 +52,7 @@ def main():
         default=[],
         help="The PC of the branches to track (defaults to all branches if not supplied",
     )
-    args = parser.parse_args(evp_args)
+    args = parser.parse_args(evp_args)  # noqa: F821 (set by the evp python plugin)
     BranchTraining(args.branch_pc)
 
 

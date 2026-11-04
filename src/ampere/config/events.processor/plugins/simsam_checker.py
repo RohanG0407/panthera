@@ -114,6 +114,6 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--simsam", type=str, required=True, help="Path to simsam binary")
 parser.add_argument("--simsam-args", type=str, nargs="+", help="array of arguments to pass config files to simsam")
 parser.add_argument("--sf", action="store_true", help="Verify SnoopFilter Access (panthera only)")
-args = parser.parse_args(evp_args)
+args = parser.parse_args(evp_args)  # noqa: F821 (set by the evp python plugin)
 
 SimSamChecker(args)

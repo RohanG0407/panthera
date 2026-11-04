@@ -74,6 +74,6 @@ class UopIssue(TransactionTracker):
 parser = argparse.ArgumentParser()
 parser.add_argument("--source_pc")
 parser.add_argument("--dest_pc")
-args = parser.parse_args(evp_args)
+args = parser.parse_args(evp_args)  # noqa: F821 (set by the evp python plugin)
 
 UopIssue(args.source_pc, args.dest_pc)

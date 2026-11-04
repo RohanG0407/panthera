@@ -8,7 +8,6 @@ Rollup Domino data from a Domino study.
 
 import argparse
 import os
-import re
 import sys
 
 import pandas as pd
@@ -37,8 +36,6 @@ def parse_args():
 
 def rollup_latency(path, df):
     """Rollup single-core latency run."""
-    dfs = []
-    inj_re = re.compile("inj([0-9]+)_latency")
     lat_df = df[df["experiment"] == "latency"]
     lat_df = lat_df.assign(latency=lat_df.apply(assign_lat, axis=1, args=("active_core",)))
     return lat_df[["active_core", "mem_size", "latency"]].set_index("active_core").sort_index()
@@ -77,8 +74,6 @@ def rollup_multicore(path, df):
 
 def rollup_ior_lat(path, df):
     """Rollup single-ior latency run."""
-    dfs = []
-    inj_re = re.compile("inj([0-9]+)_read_latency")
     lat_df = df[df["experiment"] == "ior_lat"]
     lat_df = lat_df.assign(latency=lat_df.apply(assign_ior_lat, axis=1, args=("active_ior",)))
     return lat_df[["active_ior", "latency"]].set_index("active_ior").sort_index()
@@ -86,8 +81,6 @@ def rollup_ior_lat(path, df):
 
 def rollup_ior_ld_lat(path, df):
     """Rollup single-ior latency run."""
-    dfs = []
-    inj_re = re.compile("inj([0-9]+)_read_latency")
     lat_df = df[df["experiment"] == "ior_ld_lat"]
     lat_df = lat_df.assign(latency=lat_df.apply(assign_ior_lat, axis=1, args=("active_ior",)))
     return lat_df[["active_ior", "interval", "workload", "latency"]].set_index("active_ior").sort_index()

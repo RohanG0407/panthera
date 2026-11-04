@@ -3,11 +3,11 @@
 
 cmake_minimum_required(VERSION 3.11)
 
-set(SOURCES compressed_fstream.cc)
+set(SOURCES compressed_fstream.cc search_path.cc)
 
 add_library(util ${SOURCES})
 set_property(TARGET util PROPERTY POSITION_INDEPENDENT_CODE ON)
-set_property(TARGET util PROPERTY PUBLIC_HEADER arrays.h compressed_fstream.h enum.h strings.h)
+set_property(TARGET util PROPERTY PUBLIC_HEADER arrays.h compressed_fstream.h enum.h search_path.h strings.h)
 
 target_link_libraries(util PRIVATE Boost::iostreams Boost::filesystem INTERFACE fmt json Boost::boost)
 if (${CMAKE_CXX_COMPILER_VERSION} VERSION_LESS "9")

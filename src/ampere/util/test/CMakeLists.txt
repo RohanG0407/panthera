@@ -5,6 +5,7 @@ set(TESTS
     test_bits.cc
     test_compressed_fstream.cc
     test_enum.cc
+    test_search_path.cc
     test_strings.cc)
 
 add_cpp_test(util_unit SOURCES ${TESTS})

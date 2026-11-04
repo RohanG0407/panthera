@@ -391,7 +391,7 @@ def find_best_tree(df_train, df_test):
     # Train a tree with ccp_alpha=0.0 and query the CCP alphas from that tre
     initial_tree = train_tree(X_train, y_train, ccp_alpha=0.0)
     path = initial_tree.cost_complexity_pruning_path(X_train, y_train)
-    ccp_alphas, impurities = path.ccp_alphas, path.impurities
+    ccp_alphas = path.ccp_alphas
 
     #    print(f'find_best_tree:')
 
@@ -455,7 +455,6 @@ def find_best_tree(df_train, df_test):
     curr_accuracy_range = best_accuracy_index_range(n=2)
     same_best_in_a_row = 0
 
-    MIN_ALPHA_GRANULARITY = 0.0001
     INITIAL_ALPHA_SAMPLES = 10
     min_alpha_granularity = (ccp_alphas[-1] - ccp_alphas[0]) / INITIAL_ALPHA_SAMPLES
     range_multiplier = 1.0
@@ -670,7 +669,7 @@ def main():
             res_df["weight"] = args.weight
         return res_df
 
-    summary_df = results[results["correct"] == True].sum().to_frame().T
+    summary_df = results[results["correct"].eq(True)].sum().to_frame().T
     if args.summary_output:
         add_classifiers(summary_df).to_csv(args.summary_output)
     if args.detailed_output:

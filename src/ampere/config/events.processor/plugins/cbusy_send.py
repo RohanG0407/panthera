@@ -11,7 +11,7 @@ class CBusySend:
         super().__init__()
 
         self.output = open(output, "w")
-        print(f"time,completer,rho,state,occupancy", file=self.output)
+        print("time,completer,rho,state,occupancy", file=self.output)
 
         evp.on("*.cbusy_send", lambda e: self._cbusy_send(e))
         evp.end_simulation(lambda: self.end_simulation())
@@ -30,6 +30,6 @@ class CBusySend:
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--output", default="cbusy_send.csv")
-args = parser.parse_args(evp_args)
+args = parser.parse_args(evp_args)  # noqa: F821 (set by the evp python plugin)
 
 CBusySend(args.output)

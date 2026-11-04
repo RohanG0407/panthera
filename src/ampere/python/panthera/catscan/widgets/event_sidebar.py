@@ -135,8 +135,11 @@ class EventDetailDataText(urwid.widget.Widget):
         if focus:
             attr = "focused_event_row"
 
-        pad_right = lambda string: string + " " * (maxcol - len(string))
-        pad_left = lambda string: " " * (maxcol - len(string)) + string
+        def pad_right(string):
+            return string + " " * (maxcol - len(string))
+
+        def pad_left(string):
+            return " " * (maxcol - len(string)) + string
 
         lines = []
 
@@ -260,7 +263,9 @@ class EventDetail(urwid.WidgetWrap):
         def strip_prefix(to_strip, to_compare):
             # Strip a common prefix from to_strip if it shares a prefix with
             # to_compare
-            prefix = lambda s: ".".join(s.split(".")[:-1])
+            def prefix(s):
+                return ".".join(s.split(".")[:-1])
+
             if prefix(to_strip) == prefix(to_compare):
                 # remove duplicate prefixes (i.e. those that the data items
                 # share with their parent event)

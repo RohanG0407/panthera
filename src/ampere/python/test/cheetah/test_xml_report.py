@@ -1,6 +1,8 @@
 # Copyright (c) 2025 Ampere Computing. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
+import contextlib
+import io
 import os
 import unittest
 
@@ -32,6 +34,15 @@ class TestAllPassingXMLReport(TestXMLReport):
 
     def test_errors(self):
         self.assertEqual(self.report.errors(), {})
+
+    def test_print_summary(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.report.print_summary()
+        self.assertEqual(
+            output.getvalue(),
+            "Report for: test\nNumber of jobs: 3\nNumber of errors: 0\nNumber of incompletes: 0\n",
+        )
 
 
 class TestSomeIncompleteXMLReport(TestXMLReport):

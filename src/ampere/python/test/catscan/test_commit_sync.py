@@ -6,7 +6,7 @@ import time
 import unittest
 from fractions import Fraction
 
-from panthera.catscan.commit_sync import *
+from panthera.catscan.commit_sync import CommitSyncer, CommitSyncState
 
 
 class TestCommitSync(unittest.TestCase):

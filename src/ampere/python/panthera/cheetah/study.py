@@ -478,7 +478,7 @@ class StudyBuilder:
             if process_only:
                 return jobs
 
-            logging.debug(f"Creating study JSON")
+            logging.debug("Creating study JSON")
             self._save_study_json([job[1] for job in job_cmds])
 
             return jobs

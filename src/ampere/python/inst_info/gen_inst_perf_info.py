@@ -333,7 +333,6 @@ def read_xls(infile: str, remove_deleted: bool) -> (dict, dict):
     if not infile or not os.path.isfile(infile):
         print(f"WARNING: input file does not exist: {infile}")
         return None, None
-    mismatches = 0
     input_inst_map = {}
     section_info = {}
 
@@ -420,13 +419,10 @@ def write_table_xls(outfile, fields=None, input_inst_map=None, inst_info=None):
 
     red = "00FF0000"
     green = "0000FF00"
-    classname_idx = table_fields.index("Class")
     # section_idx = table_fields.index('Section')
     # group_idx = table_fields.index('Group')
     for row_index, inst in enumerate(sorted(full_instr_list), 2):
         # Write all the basic information about this instruction into the sheet
-        classname = inst[classname_idx]
-        # print(f'{classname=}')
         for column_index, field in enumerate(inst, 1):
             sheet.cell(row=row_index, column=column_index).value = inst[column_index - 1]
 

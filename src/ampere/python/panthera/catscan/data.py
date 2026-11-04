@@ -195,7 +195,7 @@ class EventData:
         return self._max_per_time
 
     def __getitem__(self, key):
-        if type(key) == slice:
+        if isinstance(key, slice):
             max_step = 1 if key.step is None else key.step
             assert isinstance(max_step, int) and max_step != 0
             reverse = max_step < 0
@@ -682,6 +682,9 @@ class EventStreamDataView:
         def __init__(self, view):
             self._view = view
             self._next_index = 0
+
+        def __iter__(self):
+            return self
 
         def __next__(self):
             if self._next_index < len(self._view._keys):

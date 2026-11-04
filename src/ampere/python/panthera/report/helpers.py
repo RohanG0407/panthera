@@ -398,7 +398,7 @@ def metric_report(df: pd.DataFrame, metric: str) -> pd.DataFrame:
     )
     create_csv(sup, filename=f"{base_name}_speedup.csv", quiet=True)
 
-    if all_args is not None and all_args.mean and all_args.mean == "geometric" and not "raw" in metric:
+    if all_args is not None and all_args.mean and all_args.mean == "geometric" and "raw" not in metric:
         from scipy.stats import gmean
 
         mean = rup.apply(gmean)

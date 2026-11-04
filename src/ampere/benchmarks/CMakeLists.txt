@@ -135,7 +135,7 @@ target_compile_options(bm_fmla_bw PRIVATE -O2)
 add_benchmark(bm_tbnz_alignment AARCH_ONLY SOURCES test_tbnz_alignment.cc tbnz_alignment/tbnz_alignment_wrapper.S)
 target_compile_options(bm_tbnz_alignment PRIVATE -O2)
 
-add_custom_command(OUTPUT code_streaming/code_streaming.S COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/code_streaming/gen_code_streaming.py WORKING_DIRECTORY code_streaming)
+add_custom_command(OUTPUT code_streaming/code_streaming.S COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/code_streaming/gen_code_streaming.py WORKING_DIRECTORY code_streaming)
 add_benchmark(bm_code_streaming AARCH_ONLY SOURCES test_code_streaming.cc code_streaming/code_streaming.S)
 target_compile_options(bm_code_streaming PRIVATE -O2)
 

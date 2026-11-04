@@ -143,7 +143,7 @@ endfunction()
 function(build_uopcode_enum)
     add_custom_command(
         OUTPUT uopcodes.h uopcodes.cc
-        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/build_uopcodes.py ${ARGN}
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/build_uopcodes.py ${ARGN}
         DEPENDS ${ARGN} ${CMAKE_CURRENT_SOURCE_DIR}/build_uopcodes.py
     )
 endfunction(build_uopcode_enum)

@@ -58,7 +58,10 @@ def is_retry(event):
     return event.data["chi_rsp_opcode"] == 3
 
 
-CumulativeTimeSeries("*.homenode_#.recv_req", mapper=hnf_name, output=f"{output_dir}/hnf_reqs.csv")
+CumulativeTimeSeries("*.homenode_#.recv_req", mapper=hnf_name, output=f"{output_dir}/hnf_reqs.csv")  # noqa: F821 (evp variable, set with -s output_dir=<dir>)
 CumulativeTimeSeries(
-    "*.homenode_#.send_rsp", predicate=is_retry, mapper=hnf_name, output=f"{output_dir}/hnf_retries.csv"
+    "*.homenode_#.send_rsp",
+    predicate=is_retry,
+    mapper=hnf_name,
+    output=f"{output_dir}/hnf_retries.csv",  # noqa: F821 (evp variable, set with -s output_dir=<dir>)
 )

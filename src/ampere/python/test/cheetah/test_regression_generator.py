@@ -16,6 +16,6 @@ outfile = os.path.join(test_dir, "test_regression.json")
 
 class TestMaxWeightList(unittest.TestCase):
     def test_max_weight_list(self):
-        pan = subprocess.run(["python3", slr_py, infile, outfile])
+        subprocess.run(["python3", slr_py, infile, outfile], check=True)
         self.assertTrue(os.access(outfile, os.R_OK), "{} does not exist".format(outfile))
         os.unlink(outfile)

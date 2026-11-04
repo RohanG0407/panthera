@@ -73,7 +73,7 @@ def _make_enum(fn: str):
     assert namespace is not None
     assert len(tokens) > 0
     if "LAST_ITEM" in [token["name"] for token in tokens]:
-        print(f"Cannot use LAST_ITEM as a token name")
+        print("Cannot use LAST_ITEM as a token name")
         sys.exit(1)
 
     tokens.append({"name": "LAST_ITEM", "value": counter})
@@ -81,12 +81,12 @@ def _make_enum(fn: str):
     print(f"\tWriting {hfile} ...")
     with open(hfile, "w") as hout:
         _copyright(hout)
-        print(f"// generated file - do not edit", file=hout)
-        print(f"#pragma once", file=hout)
-        print(f"#include <optional>", file=hout)
-        print(f"#include <string_view>", file=hout)
-        print(f"#include <array>", file=hout)
-        print(f"#include <utility>", file=hout)  # for std::to_underlying
+        print("// generated file - do not edit", file=hout)
+        print("#pragma once", file=hout)
+        print("#include <optional>", file=hout)
+        print("#include <string_view>", file=hout)
+        print("#include <array>", file=hout)
+        print("#include <utility>", file=hout)  # for std::to_underlying
 
         print(f"namespace {namespace} {{", file=hout)
         print(f"enum class {name} {{", file=hout)
@@ -95,28 +95,28 @@ def _make_enum(fn: str):
             token_name = token["name"]
             value = token["value"]
             print(f"    {token_name:<{width}s} = {value},", file=hout)
-        print(f"}};  //enum", file=hout)
+        print("};  //enum", file=hout)
         # this is for doing range-based for loops over the valid enumeration values
         print(f"constexpr std::array<{name}, std::to_underlying({name}::LAST_ITEM)> {name}_values = {{", file=hout)
         for token in tokens[:-1]:
             token_name = token["name"]
             print(f"    {name}::{token_name},", file=hout)
-        print(f"}};  //array", file=hout)
+        print("};  //array", file=hout)
         print(f"const std::string_view {name}2str({name} e);", file=hout)  # prototype
         print(f"std::optional<{name}> str2{name}(std::string_view s);", file=hout)  # prototype
-        print(f"}} //namespace", file=hout)
+        print("} //namespace", file=hout)
 
     print(f"\tWriting {cfile} ...")
     with open(cfile, "w") as cout:
         _copyright(cout)
-        print(f"// generated file - do not edit", file=cout)
-        print(f"#include <string_view>", file=cout)
-        print(f"#include <optional>", file=cout)
-        print(f"#include <map>", file=cout)
+        print("// generated file - do not edit", file=cout)
+        print("#include <string_view>", file=cout)
+        print("#include <optional>", file=cout)
+        print("#include <map>", file=cout)
         print(f'#include "{hfile}"', file=cout)
         print(f"namespace {namespace} {{", file=cout)
         print(f"const std::string_view {name}2str({name} e) {{", file=cout)
-        print(f"    switch(e) {{", file=cout)
+        print("    switch(e) {", file=cout)
 
         prefix = f"{name}::"
         width = max([len(token["name"]) + len(prefix) for token in tokens])
@@ -124,23 +124,23 @@ def _make_enum(fn: str):
             token_name = token["name"]
             case_tag = f"{prefix}{token_name}"
             print(f'    case {case_tag:<{width}s}: return "{token_name}";', file=cout)
-        print(f'    default: return "UNKNOWN";', file=cout)
-        print(f"    }} // switch", file=cout)
-        print(f"}} // function", file=cout)
+        print('    default: return "UNKNOWN";', file=cout)
+        print("    } // switch", file=cout)
+        print("} // function", file=cout)
 
         print(f"std::optional<{name}> str2{name}(std::string_view s) {{", file=cout)
         print(f"   static std::map<std::string_view, {name}> strmap = {{", file=cout)
         for token in tokens:
             token_name = token["name"]
             print(f'    {{ "{token_name}", {prefix}{token_name} }},', file=cout)
-        print(f"   }}; // map", file=cout)
-        print(f"   if (auto search = strmap.find(s); search != strmap.end()) {{", file=cout)
-        print(f"       return search->second;", file=cout)
-        print(f"   }} // if", file=cout)
-        print(f"   return std::nullopt;", file=cout)
-        print(f"}} // function", file=cout)
+        print("   }; // map", file=cout)
+        print("   if (auto search = strmap.find(s); search != strmap.end()) {", file=cout)
+        print("       return search->second;", file=cout)
+        print("   } // if", file=cout)
+        print("   return std::nullopt;", file=cout)
+        print("} // function", file=cout)
 
-        print(f"}} //namespace", file=cout)
+        print("} //namespace", file=cout)
 
 
 def _parse_args():

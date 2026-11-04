@@ -1,7 +1,13 @@
 # Copyright (c) 2024-2025 Ampere Computing. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
-from panthera.catscan.search import *
+from panthera.catscan.search import (
+    EventStreamDataSearch,
+    FilteringSearcher,
+    IntSearcher,
+    PerPeriodSearcher,
+    TextSearcher,
+)
 from panthera.catscan.util import hex_args_to_re
 from test_data import CatscanDataTest
 

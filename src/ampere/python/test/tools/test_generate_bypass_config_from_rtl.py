@@ -19,7 +19,7 @@ class TestGenerateBypassConfigFromRTL(unittest.TestCase):
     def run_generate_bypass_config_from_rtl(cls, *args):
         cmd = [
             panthera_py,
-            f"tools.generate_bypass_config_from_rtl",
+            "tools.generate_bypass_config_from_rtl",
         ] + list(args)
 
         return subprocess.run(cmd, stdout=subprocess.PIPE, check=True)

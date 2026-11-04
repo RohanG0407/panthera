@@ -201,7 +201,7 @@ def validate_study(study, cmds, validate, check=True, dry_run=False, args=None) 
         jobs = "\n".join(failed)
         raise RuntimeError(f"validation failed, {len(failed)} configurations are invalid:\n\n{jobs}")
 
-    log.info(f"validation successful, all configurations valid")
+    log.info("validation successful, all configurations valid")
     return rollup
 
 
@@ -243,7 +243,7 @@ def run_study(study_name, cmds, args=None):
         validate_study(study, cmds, args.validate, args=args)
 
     if args.no_jobfile_output:
-        log.debug(f"Processing study only")
+        log.debug("Processing study only")
     elif args.dry_run:
         log.debug(f"Creating study for {args.run}")
     elif args.rerun:

@@ -113,3 +113,8 @@ docstring-code-format = true
 "**/report/reports/**.py" = ["F821", "F405", "F403"]
 "**/matrix/**.py" = ["F402", "F405"]
 "**/config/rollup/**.py" = ["F821"]
+# Rollup formula fixtures run with the globals metric_formula.py provides
+# (`metric`, `include`, `rollup` and include() parameters such as `scope`),
+# and catscan mapping files run with `add_abbreviation` from catscan's loader.
+"**/test/fixtures/formulas/*.py" = ["F821"]
+"**/config/catscan/*/mapping.py" = ["F821"]

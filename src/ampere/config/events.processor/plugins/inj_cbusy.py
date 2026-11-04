@@ -5,7 +5,7 @@ import re
 
 import evp
 
-cbusy_csv = open(f"{output_dir}/inj_cbusy.csv", "w")
+cbusy_csv = open(f"{output_dir}/inj_cbusy.csv", "w")  # noqa: F821 (evp variable, set with -s output_dir=<dir>)
 print("time,inj,high,low,max_outstanding_requests,outstanding_requests", file=cbusy_csv)
 
 
