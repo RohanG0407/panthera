@@ -19,7 +19,7 @@ cheetah, but python files offer more flexibility.
 
 JSON specification files are the "traditional" interface to cheetah, which is
 more core-focused. See the
-[schema](../src/ampere/python/panthera/cheetah/schema/specification.json) for
+[schema](../../src/ampere/python/panthera/cheetah/schema/specification.json) for
 what is supported in the JSON file.
 
 #### Running A Study
@@ -31,13 +31,13 @@ The **specification** and **workloads** parameters are required, but the others 
 Use a study workload list from your trace download; this guide refers to it as
 `study-list.json`.
 
-Create a specification file name `my_study.json` as described in the [Simulator configuration](#Simulator configuration) section.
+Create a specification file name `my_study.json` as described in the [Simulator configuration](#simulator-configuration) section.
 
 Finally run the studies.
 
     ./install/bin/panthera cheetah --specification my_study.json --workloads study-list.json
 
-Once the study is complete you can [rollup](rollup.md) the results and generate [reports](report.md).
+Once the study is complete you can [rollup](../analysis/rollup.md) the results and generate [reports](../analysis/report.md).
 
 #### Simulator configuration
 
