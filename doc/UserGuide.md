@@ -103,11 +103,18 @@ To run a core simulation you can use the `sim` command as described above and pr
 * Simulator executable
 * Configuration file
 * Instruction stream name
+* Number of instructions to simulate
 
 Here is an example command line that runs the core simulation with the Siryn
-configuration using a dhrystone instruction stream:
+configuration for the first 200,000 instructions of a dhrystone instruction
+stream, which takes about 20 seconds:
 
-    ./install/bin/panthera sim install/bin/amperesys -cfg install/config/model/sys/siryn.cfg -sys.soc_0.core_0.instruction_stream_name src/ampere/core/test/dhrystone.is.xz
+    ./install/bin/panthera sim install/bin/amperesys -cfg install/config/model/sys/siryn.cfg -sys.soc_0.core_0.instruction_stream_name src/ampere/core/test/dhrystone.is.xz -sys.soc_0.core_0.gpc.max_instructions 200000
+
+Always set `max_instructions` below the length of the trace. Without it, the
+simulator runs until the instruction stream is exhausted and then exits with
+an error (`E549: No instructions remaining in stream`) rather than finishing
+cleanly.
 
 An event stream file (i.e. `*.es`), which records important events during
 simulation, is not created by default.

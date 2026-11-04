@@ -158,7 +158,8 @@ LReg Instruction::tlbi_src() const
 
 uint16_t Instruction::tlbi_by_va_asid() const
 {
-    AMPERE_ASSERT(is_tlbi_by_va(), "Tried to get TLBI source data but instruction is not a TLBI by VA");
+    AMPERE_ASSERT(can_invalidate_by_va(),
+                  "Tried to get TLBI source data but instruction is not a TLBI by VA with a known operand");
     auto reg_src = state().read(tlbi_src());
 
     // ASID is Xt[63:48]
@@ -167,7 +168,8 @@ uint16_t Instruction::tlbi_by_va_asid() const
 
 uint8_t Instruction::tlbi_by_va_ttl() const
 {
-    AMPERE_ASSERT(is_tlbi_by_va(), "Tried to get TLBI source data but instruction is not a TLBI by VA");
+    AMPERE_ASSERT(can_invalidate_by_va(),
+                  "Tried to get TLBI source data but instruction is not a TLBI by VA with a known operand");
     auto reg_src = state().read(tlbi_src());
 
     // TTL is Xt[47:44];
@@ -176,7 +178,8 @@ uint8_t Instruction::tlbi_by_va_ttl() const
 
 VirtAddr Instruction::tlbi_by_va_addr() const
 {
-    AMPERE_ASSERT(is_tlbi_by_va(), "Tried to get TLBI source data but instruction is not a TLBI by VA");
+    AMPERE_ASSERT(can_invalidate_by_va(),
+                  "Tried to get TLBI source data but instruction is not a TLBI by VA with a known operand");
     auto reg_src = state().read(tlbi_src());
 
     // address[55:12] is Xt[43:0]

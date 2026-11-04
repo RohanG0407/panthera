@@ -112,6 +112,11 @@ def execute_report_script(
     clist: list[str] | None,
 ):
     """Execute a report script in the context of report_helper module.
+
+    The script runs in its own copy of this module's namespace, so the names it
+    defines (e.g. a local speedup() or a variable called all) cannot replace
+    helpers or builtins seen by later reports in the same process.
+
     :param script: code object to exec
     :param df: dataframe
     :param odir: output directory name
@@ -129,9 +134,9 @@ def execute_report_script(
     all_args = parsed_args
     global config_list
     config_list = clist
-    glbs = globals()
-    glbs["df"] = df
-    exec(script, None, glbs)
+    namespace = dict(globals())
+    namespace["df"] = df
+    exec(script, namespace)
     return output
 
 

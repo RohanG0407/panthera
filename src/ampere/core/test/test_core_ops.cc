@@ -189,6 +189,17 @@ TEST_F(ConnorCoreIntegrationTest, testTLBInvalidations)
     EXPECT_EQ(event_count("sys.soc_0.core_0.dmmu.tlb_invalidate"), 1);
 }
 
+TEST_F(SirynCoreIntegrationTest, testTLBInvalidationWithoutOperand)
+{
+    // dhrystone.is.xz records its TLBIs without their Xt operand. A copy-on-write
+    // fault around instruction 45k remaps the page at VA 0x41f000, and the store
+    // retried at instruction 48169 must use the new mapping rather than a stale
+    // TLB entry, or the commit checker reports an unexpected phys_addr.
+    run_instruction_stream(TestModule::testfixture("dhrystone.is.xz"), 60000, 200000_ns);
+
+    EXPECT_NEAR(event_count("sys.soc_0.core_0.gpc.instruction_commit"), 60000, 10);
+}
+
 TEST_F(ConnorCoreIntegrationTest, RapidCallReturn)
 {
     // get_environment()->event_stream = std::make_unique<event_stream::EventStreamProto>("rapid_call_ret.es");

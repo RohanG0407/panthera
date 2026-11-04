@@ -43,6 +43,15 @@ class TestRollupHelpers(unittest.TestCase):
         speedup = helpers.speedup(self.df, "core.ipc")
         self.assertEqual(speedup.columns.tolist(), ["y", "x"])
 
+    def test_report_script_cannot_replace_helpers(self):
+        script = compile("def speedup(df, base, value):\n    pass\n\nall = None\n", "report.py", "exec")
+        with tempfile.TemporaryDirectory() as output_dir:
+            helpers.execute_report_script(script, self.df, "rollup.csv", output_dir, {"format": "svg"}, None, None)
+
+        speedup = helpers.speedup(self.df, "core.ipc")
+        self.assertEqual(1.25, speedup["y"]["a"])
+        self.assertNotIn("all", vars(helpers))
+
     def test_create_plot(self):
         output_dir = tempfile.TemporaryDirectory()
         with patch.object(helpers, "output_dir", output_dir.name) as _output_dir:

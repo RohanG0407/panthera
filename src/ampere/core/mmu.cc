@@ -356,7 +356,7 @@ void MMU::do_invalidation()
             data_tlbi_request_out->put(tlbi);
 
         auto &ainst = tlbi->insn->archx_instruction;
-        if (ainst->is_tlbi_by_va()) {
+        if (ainst->can_invalidate_by_va()) {
             auto victims =
                 tlb.invalidate_by_va(ainst->tlbi_by_va_asid(), ainst->tlbi_by_va_ttl(), ainst->tlbi_by_va_addr());
             for (const auto &victim : victims) {
@@ -368,7 +368,8 @@ void MMU::do_invalidation()
             if (ainst->is_tlbi_by_va_all_level())
                 s1tpc.clear();
         } else {
-            // For everything that's not TLBI by VA, just flush everything
+            // For everything that's not TLBI by VA (or one whose Xt the trace did
+            // not record), just flush everything
             // FIXME: this over-invalidates in many cases
             tlb.clear();
             s1tpc.clear();

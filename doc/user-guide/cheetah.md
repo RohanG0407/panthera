@@ -19,7 +19,7 @@ cheetah, but python files offer more flexibility.
 
 JSON specification files are the "traditional" interface to cheetah, which is
 more core-focused. See the
-[schema](../src/ampere/python/panthera/cheetah/schema/specification.json) for
+[schema](../../src/ampere/python/panthera/cheetah/schema/specification.json) for
 what is supported in the JSON file.
 
 #### Running A Study
@@ -31,13 +31,13 @@ The **specification** and **workloads** parameters are required, but the others 
 Use a study workload list from your trace download; this guide refers to it as
 `study-list.json`.
 
-Create a specification file name `my_study.json` as described in the [Simulator configuration](#Simulator configuration) section.
+Create a specification file name `my_study.json` as described in the [Simulator configuration](#simulator-configuration) section.
 
 Finally run the studies.
 
     ./install/bin/panthera cheetah --specification my_study.json --workloads study-list.json
 
-Once the study is complete you can [rollup](rollup.md) the results and generate [reports](report.md).
+Once the study is complete you can [rollup](../analysis/rollup.md) the results and generate [reports](../analysis/report.md).
 
 #### Simulator configuration
 
@@ -256,12 +256,13 @@ my_study
 ## Running simulations
 
 After creating the list of simulation jobs, Cheetah runs the simulations.
-Currently Cheetah supports two methods of running the simulations.
+The `--run` parameter selects how:
 
-1. The default method is to use GNU parallel to run the simulations in parallel on the local machine
-2. An alternative is to run the simulations serially using the `--run serial` parameter
+1. `--run slurm`, the default, submits the simulations to a Slurm cluster
+2. `--run parallel` uses GNU parallel to run the simulations in parallel on the local machine (or on the machines in a [parallel node file](#parallel-node-list))
+3. `--run serial` runs the simulations one after another on the local machine
 
-The second method is used by the fast core regression test.
+On a machine without Slurm, use `--run parallel`.
 
 ## Simulation outputs
 
@@ -278,19 +279,21 @@ It generates a JUnit compatible XML report file called `report.xml` in the study
 
 ## Example run
 
-Here is an example run of Cheetah for the core model using a default study configuration and a trace list with a single dhrystone instruction stream:
+Here is an example run of Cheetah for the core model using a default study configuration and a trace list with a single dhrystone instruction stream.
+It simulates 10,000,000 instructions on the local machine, which takes about 20 minutes (drop `--run parallel` to submit it to Slurm instead):
 
-    install/bin/panthera cheetah --specification install/config/cheetah/json/siryn_study.json --workloads src/ampere/core/test/siryn_dhrystone.json --name example
+    install/bin/panthera cheetah --specification install/config/cheetah/json/siryn_study.json --workloads src/ampere/core/test/siryn_dhrystone.json --name example --run parallel
 
 This will create a directory name **example** with the following files:
 
-| File                              | Description                                              |
-| --------------------------------- | -------------------------------------------------------- |
-| example/jobs.txt                  | list of jobs, input file to GNU parallel                 |
-| example/report.xml                | XML simulation error report                              |
-| example/siryn/dhrystone.json      | simulation job specification                             |
-| example/siryn/dhrystone.log       | simulation output for dhrystone work on the siryn config |
-| example/siryn/dhrystone.ts.csv.gz | time series CSV data file                                |
+| File                                | Description                                              |
+| ----------------------------------- | -------------------------------------------------------- |
+| example/jobs.txt                    | list of jobs, input file to GNU parallel                 |
+| example/report.xml                  | XML simulation error report                              |
+| example/Siryn/dhrystone.json        | simulation job specification                             |
+| example/Siryn/dhrystone.log         | simulation output for dhrystone work on the Siryn config |
+| example/Siryn/dhrystone.summary.csv | summary CSV data file                                    |
+| example/Siryn/dhrystone.ts.csv.gz   | time series CSV data file                                |
 
 ## Validating a Study
 

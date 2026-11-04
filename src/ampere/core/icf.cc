@@ -794,9 +794,9 @@ void ICF::invalidate_tlb(TLBIReq tlbi)
 {
     auto& ainst = tlbi->insn->archx_instruction;
 
-    // For TLBI by VA, invalidate specific entries. For everything else, just clear the whole ITLB.
+    // For TLBI by VA with a known Xt, invalidate specific entries. For everything else, just clear the whole ITLB.
     // FIXME: this still over-invalidates in many cases
-    if (ainst->is_tlbi_by_va())
+    if (ainst->can_invalidate_by_va())
         itlb.invalidate_by_va(
             ainst->tlbi_by_va_asid(), ainst->tlbi_by_va_ttl(), ProgramCounter(ainst->tlbi_by_va_addr()));
     else
