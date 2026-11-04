@@ -3,6 +3,7 @@
 // Copyright (c) 2019-2024 Ampere Computing. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 //
+#include <algorithm>
 #include <boost/make_unique.hpp>
 #include "ampere/archx/branch_target.h"
 #include "ampere/archx/instruction_is.h"
@@ -80,6 +81,7 @@ InstructionIS::InstructionIS(const ampere::is::Instruction& stream_instruction,
                              ArchState state,
                              DecoderMode decoder_mode)
     : stream_instruction(stream_instruction),
+      from_stream(true),
       instruction_id(instruction_id),
       prior_instruction_id(prior_instruction_id),
       arch_state(state)
@@ -92,7 +94,11 @@ InstructionIS::InstructionIS(const ampere::is::Instruction& stream_instruction,
                              inum_t instruction_id,
                              ArchState state,
                              DecoderMode decoder_mode)
-    : stream_instruction(stream_instruction), instruction_id(instruction_id), prior_instruction_id(0), arch_state(state)
+    : stream_instruction(stream_instruction),
+      from_stream(true),
+      instruction_id(instruction_id),
+      prior_instruction_id(0),
+      arch_state(state)
 {
     arch_state_output = arch_state;
     dec_mode = decoder_mode;
@@ -106,6 +112,7 @@ InstructionIS::InstructionIS(const ampere::is::Instruction& stream_instruction,
                              std::optional<SimulationControl> control,
                              DecoderMode decoder_mode)
     : stream_instruction(stream_instruction),
+      from_stream(true),
       instruction_id(instruction_id),
       prior_instruction_id(prior_instruction_id),
       arch_state(state),
@@ -114,6 +121,21 @@ InstructionIS::InstructionIS(const ampere::is::Instruction& stream_instruction,
     arch_state_output = arch_state;
     dec_mode = decoder_mode;
     pc = ProgramCounter(stream_instruction.program_counter().va());
+}
+
+bool InstructionIS::has_tlbi_operand() const
+{
+    if (!from_stream) {
+        return true;
+    }
+
+    const auto xt = opcode() & 0x1f;
+    if (xt == 31) { // XZR
+        return true;
+    }
+
+    const auto& registers = stream_instruction.register_();
+    return std::any_of(registers.begin(), registers.end(), [xt](const auto& reg) { return reg.number() == xt; });
 }
 
 PhysAddr ampere::archx::InstructionIS::program_counter_pa() const

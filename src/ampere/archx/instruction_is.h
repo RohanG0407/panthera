@@ -69,6 +69,8 @@ public:
     inum_t inum() const override { return instruction_id; }
     inum_t prev_inum() const override { return prior_instruction_id; }
 
+    bool has_tlbi_operand() const override;
+
     bool wrong_path() const override { return instruction_id.wrong_path(); }
     bool artificial_encoding() const override { return _artificial_encoding; }
     bool emulated() const override { return is_emulated; }
@@ -95,6 +97,9 @@ private:
     PhysAddr virt_to_phys(unsigned n = 0) const;
 
     ampere::is::Instruction stream_instruction;
+    // Built from a trace record, whose source registers are the only register
+    // values known for it; otherwise the caller supplied a complete state.
+    bool from_stream{false};
     ProgramCounter pc{0xDEADC0DE};
     ProgramCounter next_pc{0xDEADC0DE};
     inum_t instruction_id;

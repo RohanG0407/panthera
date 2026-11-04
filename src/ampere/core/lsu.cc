@@ -4621,9 +4621,10 @@ void LSU::tlb_invalidations()
         auto tlbi = tlbi_request_in->take();
         auto& ainst = tlbi->insn->archx_instruction;
 
-        // For TLBI by VA, invalidate specific entries. For everything else, just clear the whole ITLB.
+        // For TLBI by VA with a known Xt, invalidate specific entries. For everything else, just clear the
+        // whole DL1 TLB.
         // FIXME: this still over-invalidates in many cases
-        if (ainst->is_tlbi_by_va())
+        if (ainst->can_invalidate_by_va())
             dl1tlb.invalidate_by_va(ainst->tlbi_by_va_asid(), ainst->tlbi_by_va_ttl(), ainst->tlbi_by_va_addr());
         else
             dl1tlb.clear();

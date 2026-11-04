@@ -154,6 +154,14 @@ public:
         return false;
     }
     bool is_tlbi_by_va() const { return is_tlbi_by_va_all_level() || is_tlbi_by_va_last_level(); }
+    // Whether the value of a TLBI's Xt operand (VA, ASID and TTL) is known.
+    // Some older traces record TLBIs without their source register, in which case
+    // reading Xt would return a stale or zero register value.
+    virtual bool has_tlbi_operand() const { return true; }
+    // A TLBI by VA that can be applied to just the translations it names.
+    // Any other TLBI must be modeled by invalidating everything.
+    bool can_invalidate_by_va() const { return is_tlbi_by_va() && has_tlbi_operand(); }
+    // Fields of Xt; only valid when can_invalidate_by_va().
     uint16_t tlbi_by_va_asid() const;
     uint8_t tlbi_by_va_ttl() const;
     VirtAddr tlbi_by_va_addr() const;

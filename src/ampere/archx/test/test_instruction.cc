@@ -187,6 +187,37 @@ TEST_F(InstructionTest, testTLBIDecode)
     ASSERT_FALSE(add.is_tlbi());
 }
 
+TEST_F(InstructionTest, testTLBIOperand)
+{
+    // d50883a1        tlbi  vale1is, x1
+    is_instruction.set_opcode(0xd50883a1);
+    InstructionIS without_xt(is_instruction, 1, state);
+    ASSERT_TRUE(without_xt.is_tlbi_by_va());
+    ASSERT_FALSE(without_xt.has_tlbi_operand());
+    ASSERT_FALSE(without_xt.can_invalidate_by_va());
+
+    // ASID 0xa, TTL 0, VA[55:12] 0xfffc77f60
+    constexpr std::uint64_t xt_value = 0xa000fffc77f60;
+    auto* xt = is_instruction.add_register_();
+    xt->set_number(1);
+    xt->set_value(xt_value);
+    InstructionIS with_xt(is_instruction, 1, state.write(cvt_gpr(1), xt_value));
+    ASSERT_TRUE(with_xt.can_invalidate_by_va());
+    ASSERT_EQ(0xa, with_xt.tlbi_by_va_asid());
+    ASSERT_EQ(0, with_xt.tlbi_by_va_ttl());
+    ASSERT_EQ(VirtAddr(0xfffc77f60000), with_xt.tlbi_by_va_addr());
+
+    // d50883bf        tlbi  vale1is, xzr
+    is_instruction.clear_register_();
+    is_instruction.set_opcode(0xd50883bf);
+    InstructionIS with_xzr(is_instruction, 1, state);
+    ASSERT_TRUE(with_xzr.can_invalidate_by_va());
+
+    // Instructions built from an explicit state rather than a trace record use that state
+    InstructionIS from_state(ProgramCounter(0xf00f), 0xd50883a1, state);
+    ASSERT_TRUE(from_state.can_invalidate_by_va());
+}
+
 TEST_F(InstructionTest, testPrefetchDecode)
 {
     // d61f0220        br      x17
