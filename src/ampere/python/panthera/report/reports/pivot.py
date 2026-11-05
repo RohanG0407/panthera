@@ -98,7 +98,6 @@ def ipc_geomean_and_chart(df, metrics, container):
         base = configurations[base_index]
         ipc_ratio = speedup(df, metric, base_index)
         ipc_ratio.sort_values(by=configurations[sort_idx], inplace=True)
-        ipc = df.loc[:, [CONFIGURATION, idx, metric]]
         ipc_m = df.pivot_table(index=idx, columns=CONFIGURATION, values=metric)
         ipc_m[configurations] = ipc_m[configurations].div(ipc_m[base], axis=0)
         ipc_m.dropna(axis=0, how="any", inplace=True)
@@ -168,7 +167,6 @@ def create_trend_plus_bar_chart(
 
 def speedup_bar_chart(df, metrics, selected_configs, container):
     idx = panthera.report.helpers.infer_index(df)
-    base = configurations[base_index]
     pivot_df = df.pivot_table(values=metrics.keys(), index=[idx], columns=[CONFIGURATION])
     for metric, label in metrics.items():
         metric_speedup = speedup(df, metric, base_index)
@@ -209,7 +207,7 @@ def df_to_xl(pivot_df, outputfile, idx):
     excel_filename = make_filepath(outputfile + ".xlsx", "pivot_table_", idx)
     print(f"writing Excel file {excel_filename}")
     excel_writer = pd.ExcelWriter(excel_filename, engine="xlsxwriter")
-    pivot_df.to_excel(excel_writer, sheet_name=f"pivoted")
+    pivot_df.to_excel(excel_writer, sheet_name="pivoted")
     excel_writer.close()
 
     # read modify and write the xl file again for some minor tuning

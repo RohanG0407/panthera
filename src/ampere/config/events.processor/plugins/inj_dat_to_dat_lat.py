@@ -62,5 +62,5 @@ def short_name(event_name):
 
 
 Inj2InjLatency(
-    f"sys.soc_0.core_#.send_dat", f"sys.soc_0.core_#.recv_dat", "inj2inj_latency.csv", "inj", rename=short_name
+    "sys.soc_0.core_#.send_dat", "sys.soc_0.core_#.recv_dat", "inj2inj_latency.csv", "inj", rename=short_name
 )

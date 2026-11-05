@@ -502,7 +502,6 @@ UopSet decode_{index}(std::uint32_t insn_bytes [[maybe_unused]])
                 index=self.insn_index,
                 field_extractions=field_extractions,
                 build_uops=build_uops,
-                num_uops=len(insn.uops),
                 source_file=project_relative(insn.filename),
                 line=insn.lineno,
             )
@@ -520,7 +519,6 @@ static const char* decode_source_{index}(std::uint32_t insn_bytes [[maybe_unused
 }}
 """.format(
                 index=self.insn_index,
-                num_uops=len(insn.uops),
                 klass=insn.__class__.__name__,
                 source_file=project_relative(insn.uops[0].filename),
                 line=insn.lineno,
@@ -567,7 +565,6 @@ static UopSet decode_fusion_{index}(std::uint32_t* insn_bytes)
                 index=self.fusion_index,
                 field_extractions=field_extractions,
                 build_uops=build_uops,
-                num_uops=len(fusion.uops),
                 source_file=project_relative(fusion.filename),
                 line=fusion.lineno,
             )

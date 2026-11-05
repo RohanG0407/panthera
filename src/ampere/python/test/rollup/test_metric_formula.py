@@ -97,28 +97,28 @@ class TestMetricFormula(unittest.TestCase):
         df = {"core.cycles": 5}
         mf = MetricFormula(df)
 
-        with self.assertLogs(logger, "WARNING") as cm:
+        with self.assertLogs(logger, "WARNING"):
             self.assertEqual(5, mf.core.stalls + mf.core.cycles)
 
-        with self.assertLogs(logger, "WARNING") as cm:
+        with self.assertLogs(logger, "WARNING"):
             self.assertEqual(5, mf.core.cycles + mf.core.stalls)
 
-        with self.assertLogs(logger, "WARNING") as cm:
+        with self.assertLogs(logger, "WARNING"):
             self.assertEqual(-5, mf.core.stalls - mf.core.cycles)
 
-        with self.assertLogs(logger, "WARNING") as cm:
+        with self.assertLogs(logger, "WARNING"):
             self.assertEqual(5, mf.core.cycles - mf.core.stalls)
 
-        with self.assertLogs(logger, "WARNING") as cm:
+        with self.assertLogs(logger, "WARNING"):
             self.assertEqual(0, mf.core.stalls * mf.core.cycles)
 
-        with self.assertLogs(logger, "WARNING") as cm:
+        with self.assertLogs(logger, "WARNING"):
             self.assertEqual(0, mf.core.stalls / mf.core.cycles)
 
-        with self.assertLogs(logger, "WARNING") as cm:
+        with self.assertLogs(logger, "WARNING"):
             self.assertEqual(0, mf.core.stalls >> mf.core.cycles)
 
-        with self.assertLogs(logger, "WARNING") as cm:
+        with self.assertLogs(logger, "WARNING"):
             self.assertEqual(0, mf.core.stalls << mf.core.cycles)
 
     def test_pandas_fragmentation(self):

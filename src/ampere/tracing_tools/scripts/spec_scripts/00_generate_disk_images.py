@@ -50,10 +50,10 @@ def dir_to_ext4_qcow(from_dir, to_qcow, rootfs_size="250G"):
 
     # Use nbd to mount the qcow image in loopback mode and create ext4 rootfs
     # from contents of from_dir
-    run(f"modprobe nbd")
+    run("modprobe nbd")
     run(f"qemu-nbd --connect /dev/nbd0 {to_qcow}.orig")
     run(f"mkfs.ext4 -d {from_dir} -L rootfs /dev/nbd0")
-    run(f"qemu-nbd --disconnect /dev/nbd0")
+    run("qemu-nbd --disconnect /dev/nbd0")
 
     # Shrink/compress image, remove uncompressed version
     run(f"qemu-img convert -O qcow2 -o nocow=on -c {to_qcow}.orig {to_qcow}")
@@ -119,7 +119,7 @@ def main():
             # command-lines are two stages of the same operation, so the second
             # depends upon the output from the first, unlike the remainder of
             # the SPEC2017 benchmarks
-            if benchmark == "525.x264" and cmdline_num is 2:
+            if benchmark == "525.x264" and cmdline_num == 2:
                 first_cmd = cmdlines[len(cmdlines) - 2]
                 assert first_cmd["benchmark"] == "525.x264"
                 assert first_cmd["cmdline_num"] == "1"

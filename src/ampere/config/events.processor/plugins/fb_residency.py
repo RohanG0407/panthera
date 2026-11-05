@@ -61,7 +61,7 @@ def short_name(event_name):
 
 
 FbResidency(
-    f"sys.soc_0.core_#.txn_id_alloc", f"sys.soc_0.core_#.txn_id_dealloc", "fb_residency.csv", "inj", rename=short_name
+    "sys.soc_0.core_#.txn_id_alloc", "sys.soc_0.core_#.txn_id_dealloc", "fb_residency.csv", "inj", rename=short_name
 )
 
 

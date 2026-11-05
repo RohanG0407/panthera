@@ -51,7 +51,7 @@ static inline nat_char nat_toupper(nat_char a)
     return toupper((unsigned char)a);
 }
 
-static int compare_right(nat_char const *a, nat_char const *b)
+static int compare_right(nat_char const* a, nat_char const* b)
 {
     int bias = 0;
 
@@ -79,7 +79,7 @@ static int compare_right(nat_char const *a, nat_char const *b)
     return 0;
 }
 
-static int compare_left(nat_char const *a, nat_char const *b)
+static int compare_left(nat_char const* a, nat_char const* b)
 {
     /* Compare two left-aligned numbers: the first to have a
        different value wins. */
@@ -99,7 +99,7 @@ static int compare_left(nat_char const *a, nat_char const *b)
     return 0;
 }
 
-static int strnatcmp0(nat_char const *a, nat_char const *b, int fold_case)
+static int strnatcmp0(nat_char const* a, nat_char const* b, int fold_case)
 {
     int ai, bi;
     nat_char ca, cb;
@@ -152,13 +152,13 @@ static int strnatcmp0(nat_char const *a, nat_char const *b, int fold_case)
     }
 }
 
-int strnatcmp(nat_char const *a, nat_char const *b)
+int strnatcmp(nat_char const* a, nat_char const* b)
 {
     return strnatcmp0(a, b, 0);
 }
 
 /* Compare, recognizing numeric string and ignoring case. */
-int strnatcasecmp(nat_char const *a, nat_char const *b)
+int strnatcasecmp(nat_char const* a, nat_char const* b)
 {
     return strnatcmp0(a, b, 1);
 }

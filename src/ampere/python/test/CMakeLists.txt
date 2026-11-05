@@ -7,6 +7,7 @@ if(NOT CLANG_BUILD)
         catscan
         cheetah
         events
+        matrix
         report
         rollup
         snippets

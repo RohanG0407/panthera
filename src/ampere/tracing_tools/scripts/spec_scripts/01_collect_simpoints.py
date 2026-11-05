@@ -159,7 +159,7 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except Exception as e:
+    except Exception:
         logging.shutdown()
         raise
     logging.shutdown()

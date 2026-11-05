@@ -214,8 +214,8 @@ class TestSimpointsTracing(unittest.TestCase):
                 )
                 return
             else:
-                self.assertTrue(shutil.which("qemu-system-aarch64") != None)
-                self.assertTrue(shutil.which("simpoint") != None)
+                self.assertIsNotNone(shutil.which("qemu-system-aarch64"))
+                self.assertIsNotNone(shutil.which("simpoint"))
 
         with tempfile.TemporaryDirectory() as tmpdirname:
             qcow_path = os.path.join(tmpdirname, "microbenchmarks.qcow2")

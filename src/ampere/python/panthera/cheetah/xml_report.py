@@ -8,9 +8,13 @@ import datetime
 import socket
 import sys
 import xml.etree.ElementTree as ET
-from typing import Dict
+from typing import TYPE_CHECKING, Dict
 
 from .job import Job
+
+if TYPE_CHECKING:
+    # study.py imports this module, so only import Study for type checking.
+    from .study import Study
 
 
 class XMLReport:
@@ -51,10 +55,10 @@ class XMLReport:
         }
 
     def print_summary(self) -> None:
-        for name, testsuite in self.summary():
-            print("Report for: {}".format(name))
-            for name, value in testsuite.items():
-                print("Number of {name}: {}".format(value))
+        for name, testsuite in self.summary().items():
+            print(f"Report for: {name}")
+            for field, value in testsuite.items():
+                print(f"Number of {field}: {value}")
 
     def errors(self) -> Dict[str, str]:
         errors = {}

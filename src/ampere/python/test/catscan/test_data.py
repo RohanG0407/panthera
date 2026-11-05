@@ -6,7 +6,7 @@ import unittest
 from os.path import abspath, dirname, join
 
 import panthera.events.trace_events
-from panthera.catscan.data import *
+from panthera.catscan.data import get_event_data, trace_events
 from panthera.events import matching_spec, rename_spec
 from panthera.events.mapping import Mapper
 
@@ -240,7 +240,8 @@ class TestData(CatscanDataTest):
         uop = list(uop_issue[524475])[0]
         self.assertEqual(uop.data["txid"], txid)
 
-        sort_txns = lambda txns: sorted(txns, key=lambda txn: txn.txid)
+        def sort_txns(txns):
+            return sorted(txns, key=lambda txn: txn.txid)
 
         # Three ways to get ancestors
         event_ancestors = sort_txns(self.esd.ancestors(uop))
@@ -262,7 +263,9 @@ class TestData(CatscanDataTest):
         fetch = list(icf_cache[519813])[0]
         self.assertEqual(fetch.data["txid"], txid)
 
-        sort_txns = lambda txns: sorted(txns, key=lambda txn: txn.txid)
+        def sort_txns(txns):
+            return sorted(txns, key=lambda txn: txn.txid)
+
         event_descendants = sort_txns(self.esd.descendants(fetch))
         txid_descendants = sort_txns(self.esd.descendants(txid))
         transaction_descendants = sort_txns(self.esd.descendants(self.esd.transactions[txid]))

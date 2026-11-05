@@ -26,7 +26,6 @@ def calculate_simpoints(args, bbv_json):
     """
 
     bbv_path = bbv_json["bbv_filename"]
-    bbv_generation_json = bbv_json["bbv_generation_json"]
 
     output_prefix = f"{bbv_json['bbv_args']['output_prefix']}.calculate_simpoints"
     std_bbv_path = f"{output_prefix}.std.bbv"

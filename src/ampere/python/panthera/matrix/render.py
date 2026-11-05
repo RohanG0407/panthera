@@ -1011,7 +1011,7 @@ class SoC(SVGElement):
         self.width = max_x
         self.height = max_y
 
-    PATH_RE = re.compile(rf"die([0-9]+)\.(.*)")
+    PATH_RE = re.compile(r"die([0-9]+)\.(.*)")
 
     def _render_paths(self, annotations, renderer_index):
         if "paths" in annotations:

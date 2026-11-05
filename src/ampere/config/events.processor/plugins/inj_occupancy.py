@@ -17,7 +17,7 @@ def inj_name(event_name):
 Occupancy(
     "*.core_#.txn_id_alloc",
     "*.core_#.txn_id_dealloc",
-    f"{output_dir}/fb_occupancy.csv",
+    f"{output_dir}/fb_occupancy.csv",  # noqa: F821 (evp variable, set with -s output_dir=<dir>)
     "inj",
     "fb_entries",
     rename=inj_name,

@@ -15,7 +15,7 @@ parser.add_argument("--report-rdi", action="store_true", help="Display average l
 parser.add_argument(
     "--name", default="lat_breakdown_summary.csv", help="CSV output filename, default = lat_breakdown_summary.csv"
 )
-args = parser.parse_args(evp_args)
+args = parser.parse_args(evp_args)  # noqa: F821 (set by the evp python plugin)
 lat_ior = args.latency_ior
 report_rdi = args.report_rdi
 out_filename = args.name

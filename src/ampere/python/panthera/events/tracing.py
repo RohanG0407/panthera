@@ -213,8 +213,8 @@ if __name__ == "__main__":
             int(args.tx_size),
             args.tx_index,
             name_field=args.tx_name,
-            start_event=args.tx_start.event,
-            end_event=args.tx_end.event,
+            start_event=args.tx_start.event if args.tx_start else None,
+            end_event=args.tx_end.event if args.tx_end else None,
             period=args.period,
             event_filters=event_filters,
         )

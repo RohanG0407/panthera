@@ -12,7 +12,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--latency-core", default=0, help="The core that is running latency thread")
 parser.add_argument("--req-opcode", default="ReadShared", help="Opcode used to calculate req to req latency")
 parser.add_argument("--output", help="Output file for per-transaction latencies")
-args = parser.parse_args(evp_args)
+args = parser.parse_args(evp_args)  # noqa: F821 (set by the evp python plugin)
 lat_core = args.latency_core
 req_opcode = args.req_opcode
 

@@ -64,6 +64,4 @@ def short_name(event_name):
     return f"inj{m.group(1)}"
 
 
-Inj2InjBW(
-    f"sys.soc_0.core_#.cache.refill", f"sys.soc_0.core_#.barrier_comp", "inj2inj_bw.csv", "inj", rename=short_name
-)
+Inj2InjBW("sys.soc_0.core_#.cache.refill", "sys.soc_0.core_#.barrier_comp", "inj2inj_bw.csv", "inj", rename=short_name)

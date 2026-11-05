@@ -9,7 +9,6 @@ from panthera.tracing.bbv import BBV
 
 class TestBBV(unittest.TestCase):
     def test_accessors(self):
-        a = BBV()
         b = BBV()
 
         self.assertEqual(len(b), 0)

@@ -5,8 +5,8 @@ import os
 import unittest
 
 import example_pb2
-from panthera.streams.protobuf_stream import *
-from panthera.streams.protobuf_utils import *
+from panthera.streams.protobuf_stream import ProtobufStreamReader, ProtobufStreamWriter
+from panthera.streams.protobuf_utils import read_delimited_from, read_header_from, write_delimited_to, write_header_to
 
 
 class TestProtobufUtils(unittest.TestCase):

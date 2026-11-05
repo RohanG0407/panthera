@@ -89,7 +89,7 @@ def drift_table(es0, label0, es1, label1, start):
 
 
 def drift_plot(inst, label1, label0, output):
-    line_plot = inst.plot(kind="line", x="Inst", y="Progressive_drift", c="Red")
+    inst.plot(kind="line", x="Inst", y="Progressive_drift", c="Red")
     matplotlib.pyplot.title("Progressive Drift: Instruction Commit Cycle Difference")
     matplotlib.pyplot.xlabel("Instruction Number")
     matplotlib.pyplot.ylabel(f"Commit Cycle Difference ({label1} minus {label0})")

@@ -11,7 +11,7 @@ parser.add_argument("alloc_event")
 parser.add_argument("dealloc_event")
 parser.add_argument("metric_name")
 parser.add_argument("histogram_settings", nargs="?", type=Histogram.from_spec, default=None)
-args = parser.parse_args(evp_args)
+args = parser.parse_args(evp_args)  # noqa: F821 (set by the evp python plugin)
 
 OccupancyHistogram(
     args.alloc_event,

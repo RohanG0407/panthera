@@ -1,6 +1,8 @@
 # Copyright (c) 2024-2025 Ampere Computing. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
+import re
+
 
 class Annotations:
     """Annotations is a container for extra data that "annotates" an SVG rendering

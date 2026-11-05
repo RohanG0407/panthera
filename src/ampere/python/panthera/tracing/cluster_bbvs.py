@@ -78,14 +78,12 @@ def cluster(ifile):
 
     results = {}
     best = None
-    best_clustering = None
     for k in range(min_k, max_k + 1):
         print("Creating clustering for", k, "clusters...")
         codebook, distortion = kmeans(whitened, k, iter=kmeans_iter)
         results[k] = (codebook, distortion)
         if best is None or distortion < best:
             best = distortion
-            best_clustering = k
         print("Clustered with distortion", distortion)
 
     # Choose which clustering provides the lowest distortion with the fewest

@@ -12,6 +12,6 @@ def pha_name(event_name):
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--output", default="pha_occupancy.csv")
-args = parser.parse_args(evp_args)
+args = parser.parse_args(evp_args)  # noqa: F821 (set by the evp python plugin)
 
 Occupancy("*.p?ha_#.allocate", "*.p?ha_#.deallocate", args.output, "pha", "tracker occupancy", rename=pha_name)

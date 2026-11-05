@@ -17,7 +17,7 @@ def mcu_name(event_name):
 Latency(
     "*.memory_#.place.cmd_queue_insert",
     "*.memory_#.req_completion_time",
-    f"{output_dir}/mcu_latency.csv",
+    f"{output_dir}/mcu_latency.csv",  # noqa: F821 (evp variable, set with -s output_dir=<dir>)
     name_col="mcu",
     rename=mcu_name,
 )

@@ -12,7 +12,7 @@ def mem_name(event_name):
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--output", default="hif_rd_occupancy.csv")
-args = parser.parse_args(evp_args)
+args = parser.parse_args(evp_args)  # noqa: F821 (set by the evp python plugin)
 
 Occupancy(
     "*.memory_#.hif_rd.acquire", "*.memory_#.hif_rd.release", args.output, "mem", "hif_rd occupancy", rename=mem_name

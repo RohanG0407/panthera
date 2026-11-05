@@ -108,6 +108,20 @@ core_count = {"octant": (64), "quad": (64 * 2), "hemi": (64 * 4)}
 soc_cfg = {"octant": "dn-octant.cfg", "quad": "dn-quad1.cfg", "hemi": "dn-hemi0.cfg"}
 max_iors = 8
 
+# Every SoC this study simulates is a Domino one, which selects the Domino
+# stash settings and c2c address lists below.
+domino_config = True
+
+
+def soc_core_count(cmd):
+    """Return the number of cores in the SoC that cmd simulates.
+
+    The multiload and c2c command templates set their own soc_cfg rather than
+    following --topology, so size their per-core loops from that config.
+    """
+    cfg = cmd.render("{soc_cfg}")
+    return next(core_count[topology] for topology, topology_cfg in soc_cfg.items() if topology_cfg == cfg)
+
 
 def latency_cmds():
     """Measure idle latency.
@@ -141,8 +155,8 @@ def lat_mem_rd_cmds():
         mem_size = [{"mem_size": m} for m in MEM_SIZES]
         cmd = lat_cmd
         cmd.sim += [f"-sys.soc_0.core_{active_core}.source.loop_count", 2]
-        cmd.evp = [f"--start", f"sys.soc_0.core_{active_core}.source.loop=1"] + cmd.evp
-        cmd.evp = [f"--stop", f"sys.soc_0.core_{active_core}.source.loop=2"] + cmd.evp
+        cmd.evp = ["--start", f"sys.soc_0.core_{active_core}.source.loop=1"] + cmd.evp
+        cmd.evp = ["--stop", f"sys.soc_0.core_{active_core}.source.loop=2"] + cmd.evp
         cmd.evp = ["--exit"] + cmd.evp
         pool = pool.concat(cmd.apply(mem_size).apply([{"max_time": "1s"}]))
 
@@ -185,6 +199,7 @@ def multiload_cmds():
     We do not currently vary the latency core, which is running a pointer chasing
     program. This is hard-coded to core 0 for now.
     """
+    max_cores = soc_core_count(multiload_cmd)
     multiload_cmds = CmdPool()
     for ncores in args.multiload_cores:
         nagg = ncores - 1
@@ -193,7 +208,7 @@ def multiload_cmds():
         den = max_cores
         for i in range(0, max_cores):
             if num >= den:
-                if domino_config == True:
+                if domino_config:
                     stash_only = "false"
                     enable = "true"
                 else:
@@ -201,7 +216,7 @@ def multiload_cmds():
                     enable = "true"
                 num -= den
             else:
-                if domino_config == True:
+                if domino_config:
                     stash_only = "true"
                     enable = "true"
                 else:
@@ -274,6 +289,7 @@ def multicore_cmds():
     This is currently broken because we've changed the way shared memory works.
     """
     num_sharers = 1
+    max_cores = soc_core_count(multicore_cmd)
     cmd = multicore_cmd.copy(prog="1r0w")
     for i in range(0, 64):
         cmd.sim += [f"-sys.soc_0.core_{i}.data_offset", f"0x{0x1000001000 * (i // num_sharers):x}"]
@@ -284,12 +300,13 @@ def multicore_cmds():
 
 def c2c_latency_cmds():
     """Measure core to core transfer latency."""
+    max_cores = soc_core_count(c2c_lat_cmd)
     c2c_cmds = CmdPool()
     mask = 0
-    if domino_config is True:
-        address_list = f"[133056,134080,135104,136128,137152,138176,139200,140224,131072,131136,131200,131264,131328,131392,131456,131520,131584,131648,131712,131776,131840,131904,131968,132032]"
+    if domino_config:
+        address_list = "[133056,134080,135104,136128,137152,138176,139200,140224,131072,131136,131200,131264,131328,131392,131456,131520,131584,131648,131712,131776,131840,131904,131968,132032]"
     else:
-        address_list = f"[131200,131264,131712,131776,132224,132288,132736,132800,133184,133120,133696,133632,134208,134144,134720,134656,131456,131520,134080,139968,134592,134528,132992,133056,133440,133376,133952,133888,134464,134400,134976,134912]"
+        address_list = "[131200,131264,131712,131776,132224,132288,132736,132800,133184,133120,133696,133632,134208,134144,134720,134656,131456,131520,134080,139968,134592,134528,132992,133056,133440,133376,133952,133888,134464,134400,134976,134912]"
     for rows in range(max_cores - 1):
         for cols in range(rows, max_cores - 1):
             mask = 1 << (rows % 64)
@@ -303,12 +320,13 @@ def c2c_latency_cmds():
 
 def c2c_loaded_latency_cmds():
     """Measure core to core transfer latency under load."""
+    max_cores = soc_core_count(c2c_ld_lat_cmd)
     c2c_cmds = CmdPool()
     mask = 0
-    if domino_config is True:
-        address_list = f"[133056,134080,135104,136128,137152,138176,139200,140224,131072,131136,131200,131264,131328,131392,131456,131520,131584,131648,131712,131776,131840,131904,131968,132032]"
+    if domino_config:
+        address_list = "[133056,134080,135104,136128,137152,138176,139200,140224,131072,131136,131200,131264,131328,131392,131456,131520,131584,131648,131712,131776,131840,131904,131968,132032]"
     else:
-        address_list = f"[131200,131264,131712,131776,132224,132288,132736,132800,133184,133120,133696,133632,134208,134144,134720,134656,131456,131520,134080,139968,134592,134528,132992,133056,133440,133376,133952,133888,134464,134400,134976,134912]"
+        address_list = "[131200,131264,131712,131776,132224,132288,132736,132800,133184,133120,133696,133632,134208,134144,134720,134656,131456,131520,134080,139968,134592,134528,132992,133056,133440,133376,133952,133888,134464,134400,134976,134912]"
     for interval in args.mem_interval:
         for rows in range(max_cores - 1):
             for cols in range(rows, max_cores - 1):
@@ -319,8 +337,8 @@ def c2c_loaded_latency_cmds():
                 )
                 for i in range(0, max_cores):
                     cmd.sim += [f"-sys.soc_0.core_{i}.data_offset", f"0x{0x1000001000 * (i + 1):x}"]
-                cmd.sim += [f"-sys.soc_0.core_{rows}.data_offset", f"0x0"]
-                cmd.sim += [f"-sys.soc_0.core_{cols + 1}.data_offset", f"0x0"]
+                cmd.sim += [f"-sys.soc_0.core_{rows}.data_offset", "0x0"]
+                cmd.sim += [f"-sys.soc_0.core_{cols + 1}.data_offset", "0x0"]
                 c2c_cmds = c2c_cmds.concat(cmd.apply([{"enable_events_on_start": "false"}]))
     return c2c_cmds
 
@@ -330,6 +348,7 @@ def c2c_bandwidth_cmds():
 
     This is done by moving a memory region among different core's L2 caches.
     """
+    max_cores = soc_core_count(c2c_bw_cmd)
     c2c_cmds = CmdPool()
     mask = 0
     for rows in range((max_cores // 2) - 1):
