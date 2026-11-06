@@ -4,7 +4,9 @@
 // SPDX-License-Identifier: BSD-3-Clause
 //
 #include <algorithm>
+#include <memory>
 #include <boost/make_unique.hpp>
+#include <fmt/format.h>
 #include "ampere/archx/branch_target.h"
 #include "ampere/archx/instruction_is.h"
 #include "ampere/archx/instruction_simple.h"
@@ -121,6 +123,24 @@ InstructionIS::InstructionIS(const ampere::is::Instruction& stream_instruction,
     arch_state_output = arch_state;
     dec_mode = decoder_mode;
     pc = ProgramCounter(stream_instruction.program_counter().va());
+}
+
+std::shared_ptr<const InstructionIS> tlb_invalidation_instruction(const ampere::is::TlbInvalidation& invalidation)
+{
+    const std::uint32_t sys_x0 = 0xd5080000; // SYS #0, C0, C0, #0, X0
+    const std::uint32_t opcode = sys_x0 | (invalidation.op1() & 0x7) << 16 | (invalidation.crn() & 0xf) << 12
+                                 | (invalidation.crm() & 0xf) << 8 | (invalidation.op2() & 0x7) << 5;
+    auto tlbi =
+        std::make_shared<InstructionIS>(ProgramCounter{0}, opcode, ArchState().write(cvt_gpr(0), invalidation.value()));
+    if (!tlbi->is_tlbi()) {
+        throw std::runtime_error(
+            fmt::format("TlbInvalidation event with op1 {}, CRn {}, CRm {} and op2 {} is not a TLBI",
+                        invalidation.op1(),
+                        invalidation.crn(),
+                        invalidation.crm(),
+                        invalidation.op2()));
+    }
+    return tlbi;
 }
 
 bool InstructionIS::has_tlbi_operand() const

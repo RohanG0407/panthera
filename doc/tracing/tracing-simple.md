@@ -66,6 +66,46 @@ trace will begin, which will save a 500-instruction trace to loopy_streams_1.is.
 This will repeat until 40 instruction streams have been captured, or all
 processes in this process tree exit.
 
+### Guests with more than one vCPU
+
+An instruction stream describes one core, so on a guest started with more
+than one vCPU (`-smp 4`, for example) the plugin traces a single vCPU, chosen
+with `trace-vcpu=N` (vCPU 0 by default):
+
+* Only vCPU N's instructions are counted, checked against instruction and PC
+  triggers, and recorded. PID and EL tracking follows the thread running on
+  vCPU N, so `profile-pid=` and `profile-comm=` count a thread's instructions
+  only while it runs there. Other vCPUs' instructions never appear in the
+  stream.
+* Kernel task events (fork, exec and exit, through perf semihosting) are
+  handled from every vCPU, so `profile-comm=` and `profile-children=` follow
+  processes and threads wherever they are created.
+* Trace markers (`hlt #0x38ce` semihosting calls and `hint #0x55`) mark a
+  point in the workload rather than in one core's instructions, so they are
+  honored from every vCPU. One executed by another vCPU takes effect just
+  before vCPU N's next instruction, and the log names the vCPU it came from.
+* Other vCPUs change memory that vCPU N reads, including translation tables.
+  The plugin records their writes (stores, atomics and `DC ZVA`) as memory
+  events right before vCPU N's next recorded instruction, wherever the stream
+  already describes that memory, so translations and memory values in the
+  stream stay consistent with what vCPU N saw.
+* The TLB invalidations other vCPUs broadcast (the Inner and Outer Shareable
+  `TLBI` forms) invalidate vCPU N's translations too. The plugin records each
+  as a TLB invalidation event at the same point, so a model that applies them
+  does not keep translations that vCPU N no longer had.
+* `trace-elf=true` is rejected: an ELF re-executes only the traced vCPU's
+  instructions, so the memory other vCPUs write would make it diverge.
+
+Run multi-vCPU guests with `-icount`. With it, QEMU does not use multi-threaded
+TCG: it runs all vCPUs on one host thread, taking turns, so the plugin sees one
+vCPU at a time and its register and memory accessors act on the vCPU that
+executes. The guest clock follows the instruction count of all vCPUs together.
+The plugin stops with an error if it sees vCPUs on more than one host thread.
+QEMU still emulates the other vCPUs on that thread, with the plugin's
+callbacks and with `-singlestep`, so every instruction of vCPU N costs more
+host time than on a single-vCPU guest, and instruction triggers on vCPU N take
+longer to fire when it is often idle.
+
 There are several other methods for causing tracing to stop/start, which are
 covered below, or by passing "-h" as an argument to the plugin:
 
@@ -93,6 +133,28 @@ General options:
         For profile-comm= or profile-pid=, profile any child
         processes in addition to the parent. This is recursive -
         all descendent processes will be profiled. (default: false)
+  skip-unwatched=[true|false]
+        Record only instructions executed while a profiled PID is
+        current (and, without profile-el1, only in EL0). Other
+        processes' instructions are left out, so the stream jumps
+        across context switches; their system register writes and
+        the memory they write are still recorded so translation
+        state and memory contents stay correct, and so are their TLB
+        invalidations, as TLB invalidation events. Their other cache
+        maintenance is not recorded. Without this, every instruction
+        the CPU executes while a trace is active is recorded.
+        (default: false)
+  trace-vcpu=N
+        On a guest with more than one vCPU, trace vCPU N (numbered
+        from 0) and no other. Instruction counts, instruction and PC
+        triggers, PID and EL tracking, and recording all follow that
+        vCPU alone. Kernel task events from every vCPU still update
+        the profiled PIDs, and trace markers (`hlt #0x38ce` and
+        `hint #0x55`) executed by another vCPU take effect just
+        before vCPU N's next instruction. Memory written by other
+        vCPUs, and the TLB invalidations they broadcast, are
+        recorded where vCPU N can first observe them. See
+        "Guests with more than one vCPU" above. (default: 0)
   offline-warmup-instructions=INSTRS
         Number of instructions worth of data to capture after start
         trigger before online warmup instructions. Setting this

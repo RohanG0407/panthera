@@ -70,6 +70,10 @@ public:
     inum_t prev_inum() const override { return prior_instruction_id; }
 
     bool has_tlbi_operand() const override;
+    const std::vector<std::shared_ptr<const Instruction>>& tlb_invalidations_after() const override
+    {
+        return invalidations_after;
+    }
 
     bool wrong_path() const override { return instruction_id.wrong_path(); }
     bool artificial_encoding() const override { return _artificial_encoding; }
@@ -115,6 +119,9 @@ private:
     bool _artificial_encoding{false};
     std::vector<VirtAddr> emulated_virt_addr;
     std::set<archx::LReg> modified_regs;
+    // The stream's TlbInvalidation events between this instruction and the
+    // next, set by DriverIS
+    std::vector<std::shared_ptr<const Instruction>> invalidations_after;
     friend class DriverIS;
 
 public:
@@ -147,6 +154,10 @@ public:
         mod_reg(archx::LReg::FLAGS);
     }
 };
+
+// A TLBI instruction that does what a stream's TlbInvalidation event
+// describes, with its register operand in X0
+std::shared_ptr<const InstructionIS> tlb_invalidation_instruction(const ampere::is::TlbInvalidation& invalidation);
 
 } // namespace ampere::archx
 

@@ -37,6 +37,7 @@ protected:
     NiceMock<MockPutter<uint64_t>> uint64_writer;
     NiceMock<MockPutter<bool>> bool_writer;
     NiceMock<MockFlushWriter> flush_writer;
+    NiceMock<MockPutter<core::TLBIReq>> tlb_invalidation_writer;
 
     GPCTest() : TestModule{{"gpc.commit_freeze_cycles", 1}} {}
 
@@ -53,6 +54,7 @@ protected:
         gpc.flush_port.bind(flush_writer);
         gpc.flush_read_port.bind(flush_reader);
         gpc.rob_empty_out.bind(bool_writer);
+        gpc.tlb_invalidation_out.bind(tlb_invalidation_writer);
         gpc.flush_req_from_idr.bind(idr_flush);
         for (int i = 0; i < gpc.num_execution_units; i++) {
             gpc.mispredict_port[i].bind(uop_mispredict[i]);
@@ -89,6 +91,75 @@ TEST_F(GPCTest, testDispatchAndCommit)
     tick();
 
     ASSERT_EQ(1, event_count("gpc.uop_commit"));
+}
+
+// A NOP that the instruction stream says two TLBIs follow
+class NopFollowedByTlbis : public archx::InstructionSimple
+{
+public:
+    const std::vector<std::shared_ptr<const archx::Instruction>>& tlb_invalidations_after() const override
+    {
+        return tlbis;
+    }
+    std::vector<std::shared_ptr<const archx::Instruction>> tlbis{
+        std::make_shared<archx::InstructionSimple>(0_pc, 0xd508833f /* TLBI VMALLE1IS */),
+        std::make_shared<archx::InstructionSimple>(0_pc, 0xd508835f /* TLBI ASIDE1IS, xzr */)};
+};
+
+TEST_F(GPCTest, testTlbInvalidationsFollowCommit)
+{
+    auto archx_instr = std::make_shared<NopFollowedByTlbis>();
+    auto archx_uops = furiosa::decode(archx_instr->opcode());
+    auto uop = trans_make<core::Uop>(std::move(archx_uops[0]), trans_make<core::Instruction>(archx_instr, nullptr));
+    uop->assign_latency(uop->raw_latency());
+    uop->alloc_id = 7;
+
+    EXPECT_CALL(dispatch, can_take()).WillOnce(Return(true)).WillRepeatedly(Return(false));
+    EXPECT_CALL(dispatch, take()).WillOnce(Return(uop));
+    EXPECT_CALL(tlb_invalidation_writer, can_put()).WillRepeatedly(Return(true));
+
+    // Nothing before the instruction commits
+    EXPECT_CALL(tlb_invalidation_writer, put(_)).Times(0);
+    tick();
+    Mock::VerifyAndClearExpectations(&tlb_invalidation_writer);
+
+    // Then both, in stream order
+    EXPECT_CALL(tlb_invalidation_writer, can_put()).WillRepeatedly(Return(true));
+    {
+        InSequence order;
+        EXPECT_CALL(tlb_invalidation_writer, put(Pointee(Field(&TLBIReqObj::tlbi, archx_instr->tlbis[0]))));
+        EXPECT_CALL(tlb_invalidation_writer, put(Pointee(Field(&TLBIReqObj::tlbi, archx_instr->tlbis[1]))));
+    }
+    EXPECT_CALL(driver, commit(_)).Times(1);
+    uop->complete = true;
+    tick();
+}
+
+TEST_F(GPCTest, testTlbInvalidationsWaitForThePort)
+{
+    auto archx_instr = std::make_shared<NopFollowedByTlbis>();
+    auto archx_uops = furiosa::decode(archx_instr->opcode());
+    auto uop = trans_make<core::Uop>(std::move(archx_uops[0]), trans_make<core::Instruction>(archx_instr, nullptr));
+    uop->assign_latency(uop->raw_latency());
+    uop->alloc_id = 7;
+    uop->complete = true;
+
+    EXPECT_CALL(dispatch, can_take()).WillOnce(Return(true)).WillRepeatedly(Return(false));
+    EXPECT_CALL(dispatch, take()).WillOnce(Return(uop));
+    EXPECT_CALL(driver, commit(_)).Times(1);
+
+    // The port takes one per cycle
+    EXPECT_CALL(tlb_invalidation_writer, can_put())
+        .WillOnce(Return(true))
+        .WillOnce(Return(false))
+        .WillOnce(Return(true))
+        .WillRepeatedly(Return(false));
+    {
+        InSequence order;
+        EXPECT_CALL(tlb_invalidation_writer, put(Pointee(Field(&TLBIReqObj::tlbi, archx_instr->tlbis[0]))));
+        EXPECT_CALL(tlb_invalidation_writer, put(Pointee(Field(&TLBIReqObj::tlbi, archx_instr->tlbis[1]))));
+    }
+    tick(4);
 }
 
 TEST_F(GPCTest, testOneMispredict)

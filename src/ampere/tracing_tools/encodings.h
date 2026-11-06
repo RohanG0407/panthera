@@ -69,6 +69,7 @@ inline DivideType divide_type(uint32_t opcode)
 #define IS_SMC(opcode) ((opcode & 0xffe0001f) == 0xd4000003)
 #define IS_HINT(opcode, imm) (opcode == ((imm << 5) | 0xd503201f))
 #define IS_HLT(opcode, imm) (opcode == ((imm << 5) | 0xd4400000))
+#define IS_DC_ZVA(opcode) ((opcode & 0xffffffe0) == 0xd50b7420)
 
 #endif // AMPERE_TRACING_ENCODINGS_H
 

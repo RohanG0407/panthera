@@ -48,6 +48,7 @@ public:
         stream_features.set_memop_size(true);
         stream_features.set_nzcv_flags_on_instructions(true);
         stream_features.set_dc_zva_addresses(true);
+        stream_features.set_tlb_invalidations(true);
 
         writer = new is::InstructionStreamWriter(tmp_filename, stream_features);
         assert(writer);
@@ -494,7 +495,58 @@ public:
         return true;
     }
 
+    virtual bool external_write(const PhysAddr pa, size_t bytes) override
+    {
+        // The stream needs the new contents only where it already describes
+        // this memory: a traced store (or an earlier external write) wrote
+        // it, or a traced load or translation table walk recorded its initial
+        // contents. Anywhere else, the first traced load records the contents
+        // it finds, which include this write, as the initial contents.
+        if (!mem_chunk_written(pa, bytes) && !overlaps_uninitialized_load(pa, bytes))
+            return true;
+
+        uint64_t val = 0;
+        stateaccessor->read_memory(pa.value(), (uint8_t*)(&val), bytes);
+
+        is::Event event;
+        is::Memory memory;
+        memory.mutable_address()->set_pa(pa.value());
+        memory.set_value((char*)&val, bytes);
+        event.mutable_memory()->CopyFrom(memory);
+        writer->write(event);
+
+        update_written_mem_chunks(pa, bytes);
+        return true;
+    }
+
+    virtual bool tlb_invalidation(uint32_t opcode, uint64_t xt) override
+    {
+        is::Event event;
+        is::TlbInvalidation* invalidation = event.mutable_tlb_invalidation();
+        invalidation->set_op1((opcode >> 16) & 0x7);
+        invalidation->set_crn((opcode >> 12) & 0xf);
+        invalidation->set_crm((opcode >> 8) & 0xf);
+        invalidation->set_op2((opcode >> 5) & 0x7);
+        invalidation->set_value(xt);
+        writer->write(event);
+        return true;
+    }
+
 private:
+    // Whether any byte of [pa, pa + size) is part of an uninitialized load
+    bool overlaps_uninitialized_load(PhysAddr pa, size_t size)
+    {
+        // Entries cover at most 8 bytes, so only those starting less than 8
+        // bytes before pa can reach it
+        const uint64_t begin = pa.value(), end = pa.value() + size;
+        auto it = uninitialized_loads.lower_bound(PhysAddr(begin >= 7 ? begin - 7 : 0));
+        for (; it != uninitialized_loads.end() && it->first.value() < end; ++it) {
+            if (it->first.value() + it->second.second > begin)
+                return true;
+        }
+        return false;
+    }
+
     /*
        Helper for update_written_mem_chunks below to take care of the fact that the
        actual memory region being written to may span multiple 64B alignments in

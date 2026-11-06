@@ -21,11 +21,13 @@ using TLBIReq = ampere::sc::transaction_ptr<TLBIReqObj>;
 class TLBIReqObj : public ampere::sc::Transaction
 {
 public:
-    explicit TLBIReqObj(uint64_t id, Instruction insn) : id(id), insn(insn) {}
+    explicit TLBIReqObj(uint64_t id, std::shared_ptr<const archx::Instruction> tlbi) : id(id), tlbi(std::move(tlbi)) {}
 
     uint64_t id;
-    Instruction insn;
-    // TODO Store what type of invalidation this is and any address specifiers
+    // The TLBI: one the core committed, or one that invalidated the core's
+    // translations without the core executing it (see
+    // archx::Instruction::tlb_invalidations_after())
+    std::shared_ptr<const archx::Instruction> tlbi;
 };
 
 } // namespace core

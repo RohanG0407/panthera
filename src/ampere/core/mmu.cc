@@ -355,7 +355,7 @@ void MMU::do_invalidation()
         if (data_tlbi_request_out.bind_count())
             data_tlbi_request_out->put(tlbi);
 
-        auto& ainst = tlbi->insn->archx_instruction;
+        const auto& ainst = tlbi->tlbi;
         if (ainst->can_invalidate_by_va()) {
             auto victims =
                 tlb.invalidate_by_va(ainst->tlbi_by_va_asid(), ainst->tlbi_by_va_ttl(), ainst->tlbi_by_va_addr());
