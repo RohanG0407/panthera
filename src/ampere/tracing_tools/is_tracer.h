@@ -494,7 +494,45 @@ public:
         return true;
     }
 
+    virtual bool external_write(const PhysAddr pa, size_t bytes) override
+    {
+        // The stream needs the new contents only where it already describes
+        // this memory: a traced store (or an earlier external write) wrote
+        // it, or a traced load or translation table walk recorded its initial
+        // contents. Anywhere else, the first traced load records the contents
+        // it finds, which include this write, as the initial contents.
+        if (!mem_chunk_written(pa, bytes) && !overlaps_uninitialized_load(pa, bytes))
+            return true;
+
+        uint64_t val = 0;
+        stateaccessor->read_memory(pa.value(), (uint8_t*)(&val), bytes);
+
+        is::Event event;
+        is::Memory memory;
+        memory.mutable_address()->set_pa(pa.value());
+        memory.set_value((char*)&val, bytes);
+        event.mutable_memory()->CopyFrom(memory);
+        writer->write(event);
+
+        update_written_mem_chunks(pa, bytes);
+        return true;
+    }
+
 private:
+    // Whether any byte of [pa, pa + size) is part of an uninitialized load
+    bool overlaps_uninitialized_load(PhysAddr pa, size_t size)
+    {
+        // Entries cover at most 8 bytes, so only those starting less than 8
+        // bytes before pa can reach it
+        const uint64_t begin = pa.value(), end = pa.value() + size;
+        auto it = uninitialized_loads.lower_bound(PhysAddr(begin >= 7 ? begin - 7 : 0));
+        for (; it != uninitialized_loads.end() && it->first.value() < end; ++it) {
+            if (it->first.value() + it->second.second > begin)
+                return true;
+        }
+        return false;
+    }
+
     /*
        Helper for update_written_mem_chunks below to take care of the fact that the
        actual memory region being written to may span multiple 64B alignments in

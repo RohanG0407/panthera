@@ -3,7 +3,11 @@
 // SPDX-License-Identifier: BSD-3-Clause
 //
 #include <cstdint>
+#include <map>
 #include <optional>
+#include <thread>
+#include <unordered_map>
+#include <vector>
 #include <stdbool.h>
 #include <fcntl.h>
 #include <glib.h>
@@ -23,6 +27,7 @@
 #include "tracing_hints.h"
 #include "ampere/instruction_stream/instruction_stream.h"
 #include "ampere/archx/instruction_is.h"
+#include "ampere/archx/translation.h"
 #include "sveagen.h"
 
 using namespace ampere;
@@ -94,6 +99,7 @@ static uint64_t max_traces = 1;
 static bool profile_el1 = false;
 static bool skip_async = false;
 static bool skip_unwatched = false;
+static unsigned trace_vcpu = 0;
 static bool profile_children = false;
 static char* profile_comm = nullptr;
 static bool waiting_for_profile_comm = true;
@@ -147,6 +153,7 @@ static long unsigned cooldown_instructions = 10000;
 
 /* Tracking (not set by arguments) */
 static qemu_plugin_id_t plugin_id;
+static int n_vcpus = 1;
 static unsigned current_el = 3;
 static uint64_t current_pid = 0;
 static bool watching = false; /* In the correct PID (and EL, if filtering on that) */
@@ -163,7 +170,51 @@ static uint64_t traced_instructions = 1; // number of instructions which have be
                                          // the traced PID(s)/EL(s). Start counting at 1 to allow 0 to mean 'unset'
 static uint64_t trace_number = 0;
 static Context* context = nullptr;
-static tracer::QEMUStateAccessor* stateaccessor = nullptr;
+
+/*
+ * QEMU state accessor that can keep reporting the contents some physical
+ * memory had at an earlier point in time.
+ *
+ * The tracers write out each instruction of the traced vCPU when that vCPU
+ * begins its next instruction, and it is only then that they read the memory
+ * the instruction accessed and the translation table entries it used. On a
+ * guest with more than one vCPU, QEMU can run the other vCPUs in between, and
+ * they can change that memory. freeze_pending_instruction() saves it before
+ * the first of them runs, so the tracers see it as the traced instruction
+ * left it.
+ */
+class FreezableStateAccessor : public tracer::QEMUStateAccessor
+{
+public:
+    /* Save the current contents of [pa, pa + len). Bytes that are already
+     * saved keep their earlier contents. */
+    void freeze(uint64_t pa, size_t len)
+    {
+        uint8_t buf[128];
+        assert(len <= sizeof(buf));
+        if (!QEMUStateAccessor::read_memory(pa, buf, len))
+            return;
+        for (size_t i = 0; i < len; i++)
+            frozen.emplace(pa + i, buf[i]);
+    }
+
+    /* Report the current contents of all memory again */
+    void thaw() { frozen.clear(); }
+
+    bool read_memory(uint64_t pa, uint8_t* result, size_t len) override
+    {
+        if (!QEMUStateAccessor::read_memory(pa, result, len))
+            return false;
+        for (auto it = frozen.lower_bound(pa); it != frozen.end() && it->first < pa + len; ++it)
+            result[it->first - pa] = it->second;
+        return true;
+    }
+
+private:
+    std::map<uint64_t, uint8_t> frozen; // physical address -> saved byte
+};
+
+static FreezableStateAccessor* stateaccessor = nullptr;
 static std::vector<struct TracerInfo> tracers;
 static bool ignoring_async = false;
 static bool resuming_from_async = false;
@@ -175,13 +226,56 @@ static ContextUpdateType el_update_type;
 static std::optional<std::pair<SysReg, uint64_t>> sysreg_write;
 static std::optional<std::pair<SysReg, uint64_t>> sysreg_read;
 
+/*
+ * State for guests with more than one vCPU. Only trace_vcpu is traced; see
+ * other_vcpu_running() for how the other vCPUs are kept out of its stream.
+ */
+
+/* Whether freeze_pending_instruction() has run for last_instruction */
+static bool pending_instruction_frozen = false;
+
+/* TCR_EL1, TTBR0_EL1 and TTBR1_EL1 as the tracers know them: read when a
+ * tracer starts and then updated with the system register writes passed to
+ * the tracers */
+struct TranslationRegs
+{
+    uint64_t tcr_el1;
+    uint64_t ttbr0_el1;
+    uint64_t ttbr1_el1;
+};
+static std::optional<TranslationRegs> traced_translation_regs;
+
+/* Physical memory written since trace_vcpu's last instruction was written
+ * out by something the stream does not record: other vCPUs, or instructions
+ * skip-unwatched leaves out. Key: 8-byte-aligned physical address; value:
+ * mask of the bytes written. */
+static std::unordered_map<uint64_t, uint8_t> external_writes;
+
+/* Trace markers (`hlt #0x38ce` semihosting calls and `hint #0x55`) that
+ * other vCPUs executed, to act on before trace_vcpu's next instruction */
+enum class MarkerType {
+    SEMIHOSTING,
+    HINT
+};
+struct Marker
+{
+    MarkerType type;
+    uint64_t x0;
+    unsigned vcpu;
+};
+static std::vector<Marker> deferred_markers;
+
+/* trace_vcpu's real PC at the start of its current translation block minus
+ * the address the block was translated at (see tb_start_pc_cb()) */
+static uint64_t tb_pc_offset = 0;
+
 // Forward declarations of necessary functions
 void plugin_reset_callback(qemu_plugin_id_t id);
 
 static void allocate_state_accessor()
 {
     if (!stateaccessor) {
-        stateaccessor = new tracer::QEMUStateAccessor();
+        stateaccessor = new FreezableStateAccessor();
     }
 }
 
@@ -236,11 +330,23 @@ General options:
         current (and, without profile-el1, only in EL0). Other
         processes' instructions are left out, so the stream jumps
         across context switches the way it does over a skipped
-        async; their system register writes are still recorded so
-        translation state (TTBRx_EL1 and friends) stays correct.
+        async; their system register writes and the memory they
+        write are still recorded so translation state (TTBRx_EL1
+        and friends) and memory contents stay correct.
         Without this, every instruction the CPU executes while a
         trace is active is recorded.
         (default: false)
+  trace-vcpu=N
+        on a guest with more than one vCPU, trace vCPU N (numbered
+        from 0) and no other. Instruction counts, instruction and
+        PC triggers, PID and EL tracking, and recording all follow
+        that vCPU alone. Kernel task events (perf semihosting) from
+        every vCPU still update the profiled PIDs, and trace
+        markers (`hlt #0x%x` and `hint #0x%x`) executed by another
+        vCPU take effect just before vCPU N's next instruction.
+        Memory written by other vCPUs is recorded at the point
+        vCPU N can first observe it, so translations and memory
+        values in the stream stay consistent. (default: %u)
   debug=[true|false]
         Enable debug prints for OS forks, context switches,
         and register values. (default: false)
@@ -327,6 +433,9 @@ Stop triggering options (select only one method)
         cooldown_instructions,
         elf_entry_point,
         elf_section_span,
+        TRACE_SEMIHOSTING_NUM,
+        TRACE_HINT_NUM,
+        trace_vcpu,
         dcache_filter_size_bytes,
         icache_filter_size_bytes,
         sve_agen_debug,
@@ -398,6 +507,13 @@ bool parse_args(int argc, char** argv)
                 log("Error: Couldn't parse argument to skip-unwatched= as a boolean\n");
                 return false;
             }
+        } else if (g_strcmp0(tokens[0], "trace-vcpu") == 0) {
+            const unsigned long vcpu = tokens[1] ? strtoul(tokens[1], &endptr, 10) : 0;
+            if (!tokens[1] || endptr == tokens[1] || *endptr || vcpu > UINT_MAX) {
+                log("Error: Couldn't parse argument to trace-vcpu= as a decimal vCPU number\n");
+                return false;
+            }
+            trace_vcpu = vcpu;
         } else if (g_strcmp0(tokens[0], "profile-comm") == 0) {
             profile_comm = strdup(tokens[1]);
             if (!profile_comm) {
@@ -818,6 +934,10 @@ void update_tracing_status()
         new_el.reset();
         sysreg_write.reset();
         sysreg_read.reset();
+        stateaccessor->thaw();
+        pending_instruction_frozen = false;
+        external_writes.clear();
+        traced_translation_regs.reset();
     }
 
     // Note: context->set_sysreg_callbacks calls qemu_plugin_reset(). A call to
@@ -1083,6 +1203,10 @@ void tracer_start_tracing(struct TracerInfo& tracer)
         tracer.starting_tracing = false;
         tracer.tracing = true;
         tracer.tracer->record_initial_state();
+        // The new tracer took these from the same registers
+        traced_translation_regs = TranslationRegs{stateaccessor->read_sysreg(TCR_EL1).value(),
+                                                  stateaccessor->read_sysreg(TTBR0_EL1).value(),
+                                                  stateaccessor->read_sysreg(TTBR1_EL1).value()};
     } catch (std::runtime_error& e) {
         log("Failed to start tracing %s with exception %s\n", tracer.id.c_str(), e.what());
         tracer.stopping_tracing = true;
@@ -1241,6 +1365,107 @@ out:
     return x0;
 }
 
+/* Act on a `hlt #0x38ce` trace semihosting call. `where` is appended to the
+ * log messages to name the vCPU that made the call. */
+static void handle_semihosting_marker(uint64_t x0, const char* where)
+{
+    switch (x0) {
+    case TRACE_SEMIHOSTING_START:
+        if (start_trigger == SEMIHOSTING) {
+            log("Starting trace upon observing semihosting call: `hlt #0x%x` with x0 = %u%s (%" PRIu64
+                " total, %" PRIu64 " watched instructions)\n",
+                TRACE_SEMIHOSTING_NUM,
+                TRACE_SEMIHOSTING_START,
+                where,
+                total_instruction_count,
+                watched_instructions);
+            start_tracing();
+        }
+        break;
+    case TRACE_SEMIHOSTING_STOP:
+        if (stop_trigger == SEMIHOSTING) {
+            log("Stopping measurement section of trace upon observing semihosting call: `hlt #0x%x` with x0 = %u%s "
+                "(%" PRIu64 " total, %" PRIu64 " watched instructions)\n",
+                TRACE_SEMIHOSTING_NUM,
+                TRACE_SEMIHOSTING_STOP,
+                where,
+                total_instruction_count,
+                watched_instructions);
+            hint_semihosting_stop_trigger_seen = true;
+            handle_tracing_transition();
+        }
+        break;
+    }
+}
+
+/* Act on a `hint #0x55` trace hint. `where` is appended to the log messages
+ * to name the vCPU that executed it. */
+static void handle_hint_marker(uint64_t x0, const char* where)
+{
+    if (start_trigger == HINT && x0 == TRACE_HINT_START) {
+        log("Starting trace upon observing: `hint #0x%x` with x0 = %u%s (%" PRIu64 " total, %" PRIu64
+            " watched instructions)\n",
+            TRACE_HINT_NUM,
+            TRACE_HINT_START,
+            where,
+            total_instruction_count,
+            watched_instructions);
+        start_tracing();
+    } else if (tracing_instructions && start_online_warmup_trigger == HINT && x0 == TRACE_HINT_START_ONLINE_WARMUP) {
+        logf("Starting online warmup upon observing: `hint #{:#x}` with x0 = {}{} ({} total, {} watched instructions)",
+             TRACE_HINT_NUM,
+             TRACE_HINT_START_ONLINE_WARMUP,
+             where,
+             total_instruction_count,
+             watched_instructions);
+        hint_start_online_warmup_seen = true;
+        handle_tracing_transition();
+    } else if (tracing_instructions && start_measurement_trigger == HINT && x0 == TRACE_HINT_START_MEASURE) {
+        logf("Starting measurement upon observing: `hint #{:#x}` with x0 = {}{} ({} total, {} watched instructions)",
+             TRACE_HINT_NUM,
+             TRACE_HINT_START_MEASURE,
+             where,
+             total_instruction_count,
+             watched_instructions);
+        hint_start_measure_seen = true;
+        handle_tracing_transition();
+    } else if (tracing_instructions && stop_trigger == HINT && x0 == TRACE_HINT_STOP) {
+        log("Stopping measurement section of trace upon observing: `hint #0x%x` with x0 = %u%s (%" PRIu64
+            " total, %" PRIu64 " watched instructions)\n",
+            TRACE_HINT_NUM,
+            TRACE_HINT_STOP,
+            where,
+            total_instruction_count,
+            watched_instructions);
+        hint_semihosting_stop_trigger_seen = true;
+        handle_tracing_transition();
+    }
+}
+
+/* Whether any trigger is a `hint #0x55` */
+static bool hint_markers_used()
+{
+    return start_trigger == HINT || start_online_warmup_trigger == HINT || start_measurement_trigger == HINT
+           || stop_trigger == HINT;
+}
+
+/* Act on the trace markers other vCPUs have executed since trace_vcpu last
+ * ran. Called just before trace_vcpu's next instruction. */
+static void handle_deferred_markers()
+{
+    // Acting on a marker never defers another, but swap the list out so that
+    // could not invalidate the iteration.
+    const auto markers = std::move(deferred_markers);
+    deferred_markers.clear();
+    for (const auto& marker : markers) {
+        const std::string where = fmt::format(" on vCPU {}", marker.vcpu);
+        if (marker.type == MarkerType::SEMIHOSTING)
+            handle_semihosting_marker(marker.x0, where.c_str());
+        else
+            handle_hint_marker(marker.x0, where.c_str());
+    }
+}
+
 uint64_t trace_semihosting_callback(uint16_t svc, unsigned int cpu_index)
 {
     uint64_t x0;
@@ -1249,31 +1474,13 @@ uint64_t trace_semihosting_callback(uint16_t svc, unsigned int cpu_index)
         exit(0);
     }
 
-    switch (x0) {
-    case TRACE_SEMIHOSTING_START:
-        if (start_trigger == SEMIHOSTING) {
-            log("Starting trace upon observing semihosting call: `hlt #0x%x` with x0 = %u (%" PRIu64 " total, %" PRIu64
-                " watched instructions)\n",
-                TRACE_SEMIHOSTING_NUM,
-                TRACE_SEMIHOSTING_START,
-                total_instruction_count,
-                watched_instructions);
-            start_tracing();
-        }
-        break;
-    case TRACE_SEMIHOSTING_STOP:
-        if (stop_trigger == SEMIHOSTING) {
-            log("Stopping measurement section of trace upon observing semihosting call: `hlt #0x%x` with x0 = %u "
-                "(%" PRIu64 " total, %" PRIu64 " watched instructions)\n",
-                TRACE_SEMIHOSTING_NUM,
-                TRACE_SEMIHOSTING_STOP,
-                total_instruction_count,
-                watched_instructions);
-            hint_semihosting_stop_trigger_seen = true;
-            handle_tracing_transition();
-        }
-        break;
-    }
+    // A call from another vCPU takes effect just before trace_vcpu's next
+    // instruction, so that everything the tracers do happens while
+    // trace_vcpu is the vCPU QEMU runs (see other_vcpu_running()).
+    if (cpu_index == trace_vcpu)
+        handle_semihosting_marker(x0, "");
+    else
+        deferred_markers.push_back({MarkerType::SEMIHOSTING, x0, cpu_index});
 
     /* The custom semihosting implementation updates x0 with whatever we return
      * here - leave x0 unchanged. */
@@ -1336,9 +1543,253 @@ bool is_load_store(tracer::Instruction inst)
     return is_instr.is_load() || is_instr.is_store();
 }
 
+/*
+ * Guests with more than one vCPU
+ *
+ * With -icount, QEMU runs every vCPU on one host thread, taking turns, so
+ * callbacks never run concurrently, and the vCPU whose callback is running
+ * is the one QEMU is executing: the plugin API's register, virtual memory
+ * and semihosting accessors act on it. Only trace_vcpu's callbacks drive
+ * tracing. The other vCPUs' callbacks only
+ *
+ * - freeze the memory the tracers will read when they write out
+ *   trace_vcpu's pending instruction (other_vcpu_running());
+ * - note the physical memory they write, which is passed to the tracers
+ *   right after that instruction (note_external_write());
+ * - defer the trace markers they execute until trace_vcpu's next
+ *   instruction (deferred_markers).
+ *
+ * Code translated while another vCPU ran can carry that vCPU's addresses,
+ * so trace_vcpu's PC is read at the start of every block (tb_start_pc_cb()).
+ * Kernel task events (perf semihosting) are handled whichever vCPU makes
+ * them, since they only update the set of profiled PIDs.
+ */
+
+/* Freeze the translation table entries that walking `translation` reads */
+static void freeze_translation(archx::Translation translation)
+{
+    while (!translation.done()) {
+        const PhysAddr pte_addr = translation.next_pte();
+        uint64_t pte = 0;
+        stateaccessor->freeze(pte_addr.value(), sizeof(pte));
+        stateaccessor->read_memory(pte_addr.value(), (uint8_t*)&pte, sizeof(pte));
+        translation.pte_fetched(pte);
+    }
+}
+
+/* Freeze what the tracers read when they write out last_instruction: the
+ * translation table entries for its PC and data addresses, and the data it
+ * accessed */
+static void freeze_pending_instruction()
+{
+    pending_instruction_frozen = true;
+    if (!traced_translation_regs)
+        return; // No tracer has started, so none will read anything
+
+    const auto& insn = last_instruction.value();
+    const auto& regs = traced_translation_regs.value();
+    const auto freeze_walk = [&regs](auto address) {
+        freeze_translation(
+            archx::Translation(address, Bitfield(regs.tcr_el1), Bitfield(regs.ttbr0_el1), Bitfield(regs.ttbr1_el1)));
+    };
+
+    freeze_walk(insn.pc);
+    for (const auto& memop : insn.memops) {
+        freeze_walk(memop.va);
+        if (memop.pa && !memop.is_io)
+            stateaccessor->freeze(memop.pa.value().value(), memop.bytes);
+    }
+    // DC ZVA and prefetches have their address in a register rather than in
+    // a memop, and the tracers translate it themselves
+    if (is_zva(cache_maint_type(insn.adis_info))) {
+        const auto reg = insn.source_regs.find(MSR_REG(insn.opcode));
+        if (reg != insn.source_regs.end())
+            freeze_walk(VirtAddr(reg->second));
+    } else if (adis::prefetch(insn.adis_info)) {
+        const auto [ok, va] = prefetch_va("instruction_tracer", insn, insn.adis_info);
+        if (ok && va)
+            freeze_walk(va.value());
+    }
+}
+
+/* Called from every callback of a vCPU other than trace_vcpu before it does
+ * anything else. trace_vcpu's last instruction is written out only when
+ * trace_vcpu starts its next one, and other vCPUs may run in between, so
+ * freeze the memory the tracers will read for it before the first of them
+ * can change it. */
+static inline void other_vcpu_running()
+{
+    if (tracing_instructions && last_instruction && !pending_instruction_frozen)
+        freeze_pending_instruction();
+}
+
+/* Record a write to [pa, pa + len) that the stream does not show by itself:
+ * another vCPU's, or one by an instruction left out of the stream */
+static void note_external_write(uint64_t pa, size_t len)
+{
+    while (len) {
+        const uint64_t offset = pa & 0x7;
+        const size_t bytes = std::min<size_t>(len, 8 - offset);
+        external_writes[pa - offset] |= ((1u << bytes) - 1) << offset;
+        pa += bytes;
+        len -= bytes;
+    }
+}
+
+/* Note the memory written by an instruction that the stream leaves out
+ * (skip-unwatched), so it is recorded like the other vCPUs' writes */
+static void note_unrecorded_writes(const tracer::Instruction& insn)
+{
+    for (const auto& memop : insn.memops) {
+        if (memop.is_store && memop.pa && !memop.is_io)
+            note_external_write(memop.pa.value().value(), memop.bytes);
+    }
+    if (is_zva(cache_maint_type(insn.adis_info))) {
+        const auto reg = insn.source_regs.find(MSR_REG(insn.opcode));
+        uint64_t pa;
+        if (reg != insn.source_regs.end() && qemu_plugin_virt_to_phys(reg->second & ~(uint64_t)0x3f, &pa))
+            note_external_write(pa, 64);
+    }
+}
+
+/* Pass external_writes to the tracers. Called once trace_vcpu's pending
+ * instruction is written out: the other vCPUs wrote this memory after that
+ * instruction executed and before trace_vcpu's next one. */
+static void write_external_writes()
+{
+    const auto write_all = [](tracer::Tracer& tracer) {
+        for (const auto& [chunk, mask] : external_writes) {
+            // One call for each run of written bytes
+            for (unsigned first = 0; first < 8;) {
+                if (!(mask & (1u << first))) {
+                    first++;
+                    continue;
+                }
+                unsigned end = first + 1;
+                while (end < 8 && (mask & (1u << end)))
+                    end++;
+                if (!tracer.external_write(PhysAddr(chunk + first), end - first))
+                    return false;
+                first = end;
+            }
+        }
+        return true;
+    };
+
+    bool error = false;
+    for (auto& t : tracers) {
+        if (t.tracing && !write_all(*t.tracer)) {
+            log("external_write() call failed for %s.\n", t.id.c_str());
+            t.tracer->abort_tracing();
+            t.tracing = false;
+            t.stopping_tracing = true;
+            error = true;
+        }
+    }
+    external_writes.clear();
+    if (error) {
+        handle_tracing_transition();
+    }
+}
+
+/* Keep traced_translation_regs in step with a system register write passed
+ * to the tracers */
+static void track_translation_regs(SysReg sysreg, uint64_t value)
+{
+    if (!traced_translation_regs)
+        return;
+    if (sysreg == TCR_EL1)
+        traced_translation_regs->tcr_el1 = value;
+    else if (sysreg == TTBR0_EL1)
+        traced_translation_regs->ttbr0_el1 = value;
+    else if (sysreg == TTBR1_EL1)
+        traced_translation_regs->ttbr1_el1 = value;
+}
+
+/* Everything above relies on QEMU running all vCPUs on one host thread, as
+ * it does with -icount. With multi-threaded TCG, callbacks would race. */
+static void check_single_vcpu_thread()
+{
+    static const std::thread::id vcpu_thread = std::this_thread::get_id();
+    if (std::this_thread::get_id() != vcpu_thread) {
+        const char* message =
+            "Error: QEMU runs this guest's vCPUs on more than one host thread. Tracing one vCPU of "
+            "several needs them on one thread: run QEMU with -icount (or -accel tcg,thread=single)\n";
+        log(message);
+        fputs(message, stderr);
+        exit(1);
+    }
+}
+
+/* Called before every `hint #0x55` when a trigger uses it, on a guest with
+ * more than one vCPU. before_insn_cb() handles trace_vcpu's own. */
+static void other_vcpu_hint_cb(unsigned int cpu_index, void* udata)
+{
+    if (cpu_index == trace_vcpu)
+        return;
+    other_vcpu_running();
+
+    uint64_t x0;
+    if (!qemu_plugin_read_reg64(&x0, 0)) {
+        log("Failed to read x0 for hint tracing call\n");
+        exit(0);
+    }
+    deferred_markers.push_back({MarkerType::HINT, x0, cpu_index});
+}
+
+/*
+ * Called at the start of every translation block on a guest with more than
+ * one vCPU. In system emulation QEMU translates code per physical page, so a
+ * block translated while one process ran is reused by any process that maps
+ * the same page (a shared library or the vDSO) at another address, and the
+ * addresses the plugin got at translation are then the first process's. On
+ * a single vCPU, the Context's resets on every CONTEXTIDR_EL1 write flush
+ * such blocks, but other vCPUs keep translating code that trace_vcpu then
+ * runs. The PC is up to date at the start of a block, so read it there.
+ */
+static void tb_start_pc_cb(unsigned int cpu_index, void* udata)
+{
+    if (cpu_index != trace_vcpu)
+        return;
+    uint64_t pc;
+    if (!qemu_plugin_read_reg64(&pc, 32 /* PC */)) {
+        log("Failed to read the PC at the start of a translation block\n");
+        exit(0);
+    }
+    tb_pc_offset = pc - (uint64_t)udata;
+}
+
+/* DC ZVA writes memory without a memory callback. Called before every DC ZVA
+ * while tracing on a guest with more than one vCPU, to note the block another
+ * vCPU zeroes (the tracers handle trace_vcpu's own DC ZVAs). */
+static void dc_zva_cb(unsigned int cpu_index, void* udata)
+{
+    if (cpu_index == trace_vcpu || !tracing_instructions)
+        return;
+    other_vcpu_running();
+
+    const uint32_t encoding = (uintptr_t)udata;
+    uint64_t va = 0; // Register 31 is XZR here
+    if (MSR_REG(encoding) != 31 && !qemu_plugin_read_reg64(&va, MSR_REG(encoding))) {
+        log("Failed to read the address register of a DC ZVA\n");
+        exit(0);
+    }
+    // Like the tracers, assume DCZID_EL0.BS is 4 (64-byte blocks), as it is
+    // for every AArch64 CPU QEMU models
+    uint64_t pa;
+    if (qemu_plugin_virt_to_phys(va & ~(uint64_t)0x3f, &pa))
+        note_external_write(pa, 64);
+}
+
 void before_insn_cb(unsigned int cpu_index, void* udata)
 {
-    uint64_t pc = (uint64_t)udata;
+    if (cpu_index != trace_vcpu) {
+        other_vcpu_running();
+        return;
+    }
+
+    uint64_t pc = (uint64_t)udata + tb_pc_offset;
+
     uint32_t encoding;
     if (qemu_plugin_read_memory(pc, (uint8_t*)&encoding, 4)) {
         log("before_insn_cb failed to read from 0x%" PRIx64 "\n", pc);
@@ -1365,43 +1816,7 @@ void before_insn_cb(unsigned int cpu_index, void* udata)
             log("Failed to read x0 for hint tracing call\n");
             exit(0);
         }
-
-        if (start_trigger == HINT && x0 == TRACE_HINT_START) {
-            log("Starting trace upon observing: `hint #0x%x` with x0 = %u (%" PRIu64 " total, %" PRIu64
-                " watched instructions)\n",
-                TRACE_HINT_NUM,
-                TRACE_HINT_START,
-                total_instruction_count,
-                watched_instructions);
-            start_tracing();
-        } else if (tracing_instructions && start_online_warmup_trigger == HINT && x0 == TRACE_HINT_START_ONLINE_WARMUP)
-        {
-            logf(
-                "Starting online warmup upon observing: `hint #{:#x}` with x0 = {} ({} total, {} watched instructions)",
-                TRACE_HINT_NUM,
-                TRACE_HINT_START_ONLINE_WARMUP,
-                total_instruction_count,
-                watched_instructions);
-            hint_start_online_warmup_seen = true;
-            handle_tracing_transition();
-        } else if (tracing_instructions && start_measurement_trigger == HINT && x0 == TRACE_HINT_START_MEASURE) {
-            logf("Starting measurement upon observing: `hint #{:#x}` with x0 = {} ({} total, {} watched instructions)",
-                 TRACE_HINT_NUM,
-                 TRACE_HINT_START_MEASURE,
-                 total_instruction_count,
-                 watched_instructions);
-            hint_start_measure_seen = true;
-            handle_tracing_transition();
-        } else if (tracing_instructions && stop_trigger == HINT && x0 == TRACE_HINT_STOP) {
-            log("Stopping measurement section of trace upon observing: `hint #0x%x` with x0 = %u (%" PRIu64
-                " total, %" PRIu64 " watched instructions)\n",
-                TRACE_HINT_NUM,
-                TRACE_HINT_STOP,
-                total_instruction_count,
-                watched_instructions);
-            hint_semihosting_stop_trigger_seen = true;
-            handle_tracing_transition();
-        }
+        handle_hint_marker(x0, "");
     }
 
     if (tracers.size() > 0) {
@@ -1509,6 +1924,15 @@ void before_insn_cb(unsigned int cpu_index, void* udata)
                     }
                 }
             }
+            if (sysreg_write) {
+                track_translation_regs(sysreg_write->first, sysreg_write->second);
+            }
+            // Memory writes of instructions left out are kept too, for the
+            // same reason as their system register writes: what the
+            // recorded instructions read next has to match the stream.
+            if (!record_instruction && last_instruction) {
+                note_unrecorded_writes(last_instruction.value());
+            }
             if (error) {
                 handle_tracing_transition();
             }
@@ -1518,6 +1942,16 @@ void before_insn_cb(unsigned int cpu_index, void* udata)
         new_el.reset();
         sysreg_write.reset();
         sysreg_read.reset();
+
+        // Only now that the last instruction is written out (or dropped) can
+        // the tracers see what other vCPUs did since it executed.
+        if (pending_instruction_frozen) {
+            stateaccessor->thaw();
+            pending_instruction_frozen = false;
+        }
+        if (!external_writes.empty()) {
+            write_external_writes();
+        }
 
         if (tracing_instructions) {
             if (!stateaccessor) {
@@ -1630,8 +2064,19 @@ void before_insn_cb(unsigned int cpu_index, void* udata)
 static void mem_cb(unsigned int cpu_index, qemu_plugin_meminfo_t meminfo, uint64_t va, void* udata)
 {
 #ifndef NDEBUG
-    uint64_t pc = (uint64_t)udata;
+    uint64_t pc = (uint64_t)udata + tb_pc_offset;
 #endif
+
+    if (cpu_index != trace_vcpu) {
+        if (tracing_instructions && qemu_plugin_mem_is_store(meminfo)) {
+            other_vcpu_running();
+            struct qemu_plugin_hwaddr* hwaddr = qemu_plugin_get_hwaddr(meminfo, va);
+            if (hwaddr && !qemu_plugin_hwaddr_is_io(hwaddr)) {
+                note_external_write(qemu_plugin_hwaddr_phys_addr(hwaddr), 1 << qemu_plugin_mem_size_shift(meminfo));
+            }
+        }
+        return;
+    }
 
     if (!tracing_instructions || !last_instruction || !tracers.size())
         return;
@@ -1668,6 +2113,17 @@ void before_tb_cb(unsigned int cpu_index, void* udata)
 {
     uint64_t num_insns = (uint64_t)udata;
 
+    if (n_vcpus > 1) {
+        check_single_vcpu_thread();
+    }
+    if (cpu_index != trace_vcpu) {
+        other_vcpu_running();
+        return;
+    }
+    if (!deferred_markers.empty()) {
+        handle_deferred_markers();
+    }
+
     total_instruction_count += num_insns;
     if (watching) {
         watched_instructions += num_insns;
@@ -1684,10 +2140,27 @@ void before_tb_cb(unsigned int cpu_index, void* udata)
     }
 }
 
+/* Whether an instruction translated at address `pc` can run at address
+ * `target`: on more than one vCPU, translations are shared between
+ * addresses with the same offset within a page (see tb_start_pc_cb()) */
+static bool may_run_at(uint64_t pc, uint64_t target)
+{
+    if (n_vcpus == 1)
+        return pc == target;
+    return (pc & 0xfff) == (target & 0xfff);
+}
+
 static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb* tb)
 {
     size_t n = qemu_plugin_tb_n_insns(tb);
     size_t i;
+
+    if (n_vcpus > 1) {
+        // Registered first so that tb_pc_offset is up to date for the other
+        // callbacks of this block
+        qemu_plugin_register_vcpu_tb_exec_cb(
+            tb, tb_start_pc_cb, QEMU_PLUGIN_CB_R_REGS, (void*)qemu_plugin_tb_vaddr(tb));
+    }
 
     for (i = 0; i < n; i++) {
         struct qemu_plugin_insn* insn = qemu_plugin_tb_get_insn(tb, i);
@@ -1696,13 +2169,21 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb* tb)
 
         if (tracers.size() > 0 || context->needs_before_insn(id, pc, encoding)
             || ((start_trigger == HINT || stop_trigger == HINT) && IS_HINT(encoding, TRACE_HINT_NUM))
-            || (start_trigger == PC && pc == trigger_start_after_pc)
-            || (stop_trigger == PC && pc == trigger_stop_after_pc))
+            || (start_trigger == PC && may_run_at(pc, trigger_start_after_pc))
+            || (stop_trigger == PC && may_run_at(pc, trigger_stop_after_pc)))
         {
             qemu_plugin_register_vcpu_insn_exec_cb(insn, before_insn_cb, QEMU_PLUGIN_CB_R_REGS, (void*)pc);
         }
-        if (tracing_instructions)
+        if (n_vcpus > 1 && hint_markers_used() && IS_HINT(encoding, TRACE_HINT_NUM)) {
+            qemu_plugin_register_vcpu_insn_exec_cb(insn, other_vcpu_hint_cb, QEMU_PLUGIN_CB_R_REGS, nullptr);
+        }
+        if (tracing_instructions) {
             qemu_plugin_register_vcpu_mem_cb(insn, mem_cb, QEMU_PLUGIN_CB_NO_REGS, QEMU_PLUGIN_MEM_RW, (void*)pc);
+            if (n_vcpus > 1 && IS_DC_ZVA(encoding)) {
+                qemu_plugin_register_vcpu_insn_exec_cb(
+                    insn, dc_zva_cb, QEMU_PLUGIN_CB_R_REGS, (void*)(uintptr_t)encoding);
+            }
+        }
     }
     qemu_plugin_register_vcpu_tb_exec_cb(tb, before_tb_cb, QEMU_PLUGIN_CB_NO_REGS, (void*)n);
 }
@@ -1814,6 +2295,27 @@ int qemu_plugin_install(qemu_plugin_id_t id, const qemu_info_t* info, int argc, 
     if (!parse_args(argc, argv))
         return -1;
 
+    if (info->system_emulation)
+        n_vcpus = info->system.smp_vcpus;
+    if (trace_vcpu >= (unsigned)n_vcpus) {
+        const auto message =
+            fmt::format("Error: trace-vcpu={} is out of range: this guest has {} vCPU{}, numbered from 0\n",
+                        trace_vcpu,
+                        n_vcpus,
+                        n_vcpus == 1 ? "" : "s");
+        log(message.c_str());
+        fputs(message.c_str(), stderr);
+        return -1;
+    }
+    if (n_vcpus > 1 && trace_elf) {
+        const char* message =
+            "Error: trace-elf=true needs a guest with one vCPU: the ELF re-executes only the "
+            "traced vCPU's instructions, so the memory other vCPUs write would make it diverge\n";
+        log(message);
+        fputs(message, stderr);
+        return -1;
+    }
+
     if (qemu_plugin_semihosting_register(PERF_SEMIHOSTING_NUM, perf_semihosting_callback)) {
         log("Error registering perf semihosting callback\n");
         return -1;
@@ -1909,6 +2411,9 @@ int qemu_plugin_install(qemu_plugin_id_t id, const qemu_info_t* info, int argc, 
         log("ELF files will have entry points at 0x%" PRIx64 " and will %sbe flat mapped\n",
             elf_entry_point,
             flat_map ? "" : "not ");
+    }
+    if (n_vcpus > 1) {
+        log("Tracing vCPU %u of %d; instruction counts and triggers follow it alone\n", trace_vcpu, n_vcpus);
     }
 
     // Call the callback here manually to originally register the hooks we want

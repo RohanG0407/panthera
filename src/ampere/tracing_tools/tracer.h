@@ -156,6 +156,14 @@ public:
      * which will follow this one. */
     virtual bool instruction_exec(const Instruction& instruction, const ProgramCounter next_pc) = 0;
 
+    /* Called when something the trace does not show (another vCPU, or an
+     * instruction left out of the trace) has written `bytes` bytes (at most
+     * 8, within one 8-byte-aligned block) at physical address `pa`. It is called between instruction_exec()
+     * calls, at the first point where the traced instructions can observe the
+     * write, and memory then holds the written value. Tracers that only
+     * describe the traced instructions' own accesses can ignore it. */
+    virtual bool external_write(const archx::PhysAddr pa, size_t bytes) { return true; }
+
     /* called just the tracer is created. It allows for capturing the
        state before the first traced instruction. This is primarily
        for the IStracer; others do not care do we supply a default
