@@ -93,6 +93,7 @@ static bool trace_elf = false;
 static uint64_t max_traces = 1;
 static bool profile_el1 = false;
 static bool skip_async = false;
+static bool skip_unwatched = false;
 static bool profile_children = false;
 static char* profile_comm = nullptr;
 static bool waiting_for_profile_comm = true;
@@ -229,6 +230,16 @@ General options:
   skip-async=[true|false]
         skip over tracing any instructions after an async until
         the next context change
+        (default: false)
+  skip-unwatched=[true|false]
+        record only instructions executed while a profiled PID is
+        current (and, without profile-el1, only in EL0). Other
+        processes' instructions are left out, so the stream jumps
+        across context switches the way it does over a skipped
+        async; their system register writes are still recorded so
+        translation state (TTBRx_EL1 and friends) stays correct.
+        Without this, every instruction the CPU executes while a
+        trace is active is recorded.
         (default: false)
   debug=[true|false]
         Enable debug prints for OS forks, context switches,
@@ -380,6 +391,11 @@ bool parse_args(int argc, char** argv)
         } else if (g_strcmp0(tokens[0], "skip-async") == 0) {
             if (!qemu_plugin_bool_parse(tokens[0], tokens[1], &skip_async)) {
                 log("Error: Couldn't parse argument to skip-async= as a boolean\n");
+                return false;
+            }
+        } else if (g_strcmp0(tokens[0], "skip-unwatched") == 0) {
+            if (!qemu_plugin_bool_parse(tokens[0], tokens[1], &skip_unwatched)) {
+                log("Error: Couldn't parse argument to skip-unwatched= as a boolean\n");
                 return false;
             }
         } else if (g_strcmp0(tokens[0], "profile-comm") == 0) {
@@ -1410,8 +1426,13 @@ void before_insn_cb(unsigned int cpu_index, void* udata)
         uint64_t pc_pa;
         bool skip_instruction = false;
 
+        // `watching` has not been updated for the current PC yet, so it
+        // describes the context of last_instruction, which is what we decide
+        // to write (or not) here.
+        const bool record_instruction = watching || !skip_unwatched;
+
         if (!ignoring_async) {
-            if (last_instruction) {
+            if (last_instruction && record_instruction) {
                 // Check if the last recorded instruction is a load or store. If it
                 // is and has not seen any memory operations, mark it as faulting
                 if (!last_instruction.value().memops.size() && context->is_exception(pc)
@@ -1440,7 +1461,7 @@ void before_insn_cb(unsigned int cpu_index, void* udata)
             bool error = false;
             for (auto& t : tracers) {
                 if (t.tracing) {
-                    if (new_el && !resuming_from_async) {
+                    if (record_instruction && new_el && !resuming_from_async) {
                         if (!t.tracer->el_change((archx::EL)new_el.value(), el_update_type)) {
                             log("el_change() call failed for %s.\n", t.id.c_str());
                             t.tracer->abort_tracing();
@@ -1450,7 +1471,7 @@ void before_insn_cb(unsigned int cpu_index, void* udata)
                             continue;
                         }
                     }
-                    if (t.tracing && last_instruction && !skip_instruction) {
+                    if (t.tracing && record_instruction && last_instruction && !skip_instruction) {
                         if (!t.tracer->instruction_exec(last_instruction.value(), ProgramCounter{pc})) {
                             log("instruction_exec() call failed for %s.\n", t.id.c_str());
                             t.tracer->abort_tracing();
@@ -1460,6 +1481,10 @@ void before_insn_cb(unsigned int cpu_index, void* udata)
                             continue;
                         }
                     }
+                    // System register writes are kept even when skip-unwatched
+                    // leaves their instruction out: switching back to a
+                    // profiled PID writes TTBR0_EL1 before CONTEXTIDR_EL1,
+                    // and the tracer's translation state has to follow it.
                     if (t.tracing && sysreg_write) {
                         auto sysreg = sysreg_write.value();
                         if (!t.tracer->sysreg_write(sysreg.first, sysreg.second)) {
@@ -1471,7 +1496,7 @@ void before_insn_cb(unsigned int cpu_index, void* udata)
                             continue;
                         }
                     }
-                    if (t.tracing && sysreg_read) {
+                    if (t.tracing && record_instruction && sysreg_read) {
                         auto sysreg = sysreg_read.value();
                         if (!t.tracer->sysreg_read(sysreg.first, sysreg.second)) {
                             log("sysreg_read() call failed for %s.\n", t.id.c_str());
@@ -1833,10 +1858,17 @@ int qemu_plugin_install(qemu_plugin_id_t id, const qemu_info_t* info, int argc, 
         log("in ");
         if (profile_children)
             log("process tree of ");
-        if (profiling_pids.size())
+        if (profiling_pids.size() == 1) {
             log("PID %" PRId64, *profiling_pids.begin());
-        else
+        } else if (profiling_pids.size() > 1) {
+            log("PIDs");
+            for (const auto pid : profiling_pids)
+                log(" %" PRId64, pid);
+        } else {
             log("first process with command name \"%s\"", profile_comm);
+        }
+        if (skip_unwatched)
+            log(", recording only their instructions,");
     }
     log(" with start trigger after:\n");
     switch (start_trigger) {

@@ -93,6 +93,14 @@ General options:
         For profile-comm= or profile-pid=, profile any child
         processes in addition to the parent. This is recursive -
         all descendent processes will be profiled. (default: false)
+  skip-unwatched=[true|false]
+        Record only instructions executed while a profiled PID is
+        current (and, without profile-el1, only in EL0). Other
+        processes' instructions are left out, so the stream jumps
+        across context switches; their system register writes are
+        still recorded so translation state stays correct. Without
+        this, every instruction the CPU executes while a trace is
+        active is recorded. (default: false)
   offline-warmup-instructions=INSTRS
         Number of instructions worth of data to capture after start
         trigger before online warmup instructions. Setting this
