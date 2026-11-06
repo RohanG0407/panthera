@@ -141,8 +141,9 @@ General options:
         the memory they write are still recorded so translation
         state and memory contents stay correct, and so are their TLB
         invalidations, as TLB invalidation events. Their other cache
-        maintenance is not recorded. Without this, every instruction the CPU executes while a
-        trace is active is recorded. (default: false)
+        maintenance is not recorded. Without this, every instruction
+        the CPU executes while a trace is active is recorded.
+        (default: false)
   trace-vcpu=N
         On a guest with more than one vCPU, trace vCPU N (numbered
         from 0) and no other. Instruction counts, instruction and PC
