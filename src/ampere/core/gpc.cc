@@ -125,6 +125,7 @@ bool GPC::run()
 
     if (can_commit)
         commit(uop_retire_width, false);
+    send_tlb_invalidations();
 
     dispatch();
     report();
@@ -552,6 +553,17 @@ void GPC::commit_uop(const Uop& uop)
     uop_commit_checker(uop);
 }
 
+/* Pass on the TLB invalidations that follow committed instructions. They come
+ * in bursts (a TLBI for each page of a range), so they wait here for the
+ * port. */
+void GPC::send_tlb_invalidations()
+{
+    while (!tlb_invalidations.empty() && tlb_invalidation_out->can_put()) {
+        tlb_invalidation_out->put(tlb_invalidations.front());
+        tlb_invalidations.pop_front();
+    }
+}
+
 void GPC::commit_instruction(const Instruction& instruction)
 {
     ev_instruction_commit(instruction,
@@ -571,6 +583,8 @@ void GPC::commit_instruction(const Instruction& instruction)
     instruction_commit_checker(instruction);
     architectural_commit_pmus(instruction);
     driver_port->commit(instruction->archx_instruction);
+    for (const auto& tlbi : instruction->archx_instruction->tlb_invalidations_after())
+        tlb_invalidations.push_back(make_child<TLBIReq>(instruction, instruction->inum().id(), tlbi));
 
     auto cycles = get_cycle() - last_instr_commit_cycle;
     if (start_measurement_cycle) {

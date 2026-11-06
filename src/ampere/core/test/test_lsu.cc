@@ -65,6 +65,7 @@ public:
         lsu.tlbi_request_out.bind(tlbi_out_mock);
         lsu.tlbi_immu_request_out.bind(tlbi_out_mock);
         lsu.tlbi_request_in.bind(tlbi_in_mock);
+        lsu.tlb_invalidation_in.bind(tlb_invalidation_in_mock);
         lsu.loads_committed_port.bind(gpc_load_in_mock);
         lsu.stores_committed_port.bind(gpc_store_in_mock);
         lsu.pmu_oldest_load_tlb_out.bind(pmu_tlb_out_mock);
@@ -108,6 +109,7 @@ public:
     NiceMock<MockMMUReqWriter> mmu_out_mock;
     NiceMock<MockTLBIReqWriter> tlbi_out_mock;
     NiceMock<MockTLBIReqReader> tlbi_in_mock;
+    NiceMock<MockTLBIReqReader> tlb_invalidation_in_mock;
     NiceMock<MockNumReader> gpc_load_in_mock;
     NiceMock<MockNumReader> gpc_store_in_mock;
     NiceMock<MockPMUWriter> pmu_tlb_out_mock;
@@ -319,6 +321,33 @@ TEST_F(LSUTest, testConstructor)
 {
     get_environment()->parameters.add_setting("top.lsu.dl1tlb.sets", 1, "unit test");
     Top top("top");
+}
+
+TEST_F(LSUTest, ForwardsTlbInvalidationsToBothMMUs)
+{
+    get_environment()->parameters.add_setting("top.lsu.dl1tlb.sets", 1, "unit test");
+    Top top("top");
+
+    auto tlbi = make<TLBIReq>(1, std::make_shared<archx::InstructionSimple>(0_pc, 0xd508833f /* TLBI VMALLE1IS */));
+    EXPECT_CALL(top.tlb_invalidation_in_mock, can_take()).WillOnce(Return(true)).WillRepeatedly(Return(false));
+    EXPECT_CALL(top.tlb_invalidation_in_mock, take()).WillOnce(Return(tlbi));
+    EXPECT_CALL(top.tlbi_out_mock, can_put()).WillRepeatedly(Return(true));
+    EXPECT_CALL(top.tlbi_out_mock, put(tlbi)).Times(2); // tlbi_request_out and tlbi_immu_request_out
+
+    top.lsu.run();
+}
+
+TEST_F(LSUTest, HoldsTlbInvalidationsWhileThePortsAreBusy)
+{
+    get_environment()->parameters.add_setting("top.lsu.dl1tlb.sets", 1, "unit test");
+    Top top("top");
+
+    EXPECT_CALL(top.tlb_invalidation_in_mock, can_take()).WillRepeatedly(Return(true));
+    EXPECT_CALL(top.tlb_invalidation_in_mock, take()).Times(0);
+    EXPECT_CALL(top.tlbi_out_mock, can_put()).WillRepeatedly(Return(false));
+    EXPECT_CALL(top.tlbi_out_mock, put(_)).Times(0);
+
+    top.lsu.run();
 }
 
 TEST_F(LSUTest, testRunBadUop)

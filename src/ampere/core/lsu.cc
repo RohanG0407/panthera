@@ -187,6 +187,7 @@ bool LSU::run()
     // GC02/LR02
     gpc_store_commit_response();
     gpc_load_commit_response();
+    forward_tlb_invalidations();
 
     // LD03
     sta_load_complete_stage();
@@ -3404,7 +3405,7 @@ void LSU::gpc_store_commit_response()
 
             for (const auto& inst : sob_entry.uop->instructions) {
                 if (inst->archx_instruction->is_tlbi()) {
-                    auto tlbi = make_child<TLBIReq>(sob_entry.uop, sob_entry.uop->alloc_id, inst);
+                    auto tlbi = make_child<TLBIReq>(sob_entry.uop, sob_entry.uop->alloc_id, inst->archx_instruction);
                     tlbi_request_out->put(tlbi);
                     tlbi_immu_request_out->put(tlbi);
                 }
@@ -3434,6 +3435,18 @@ void LSU::gpc_store_commit_response()
         }
 
         ++sob_handle;
+    }
+}
+
+/* Send the TLB invalidations that follow committed instructions to the MMUs,
+ * like the TLBIs that gpc_store_commit_response() commits, using the ports
+ * when it leaves them free */
+void LSU::forward_tlb_invalidations()
+{
+    while (tlb_invalidation_in->can_take() && tlbi_request_out->can_put() && tlbi_immu_request_out->can_put()) {
+        auto tlbi = tlb_invalidation_in->take();
+        tlbi_request_out->put(tlbi);
+        tlbi_immu_request_out->put(tlbi);
     }
 }
 
@@ -4619,7 +4632,7 @@ void LSU::tlb_invalidations()
 {
     while (tlbi_request_in->can_take()) {
         auto tlbi = tlbi_request_in->take();
-        auto& ainst = tlbi->insn->archx_instruction;
+        const auto& ainst = tlbi->tlbi;
 
         // For TLBI by VA with a known Xt, invalidate specific entries. For everything else, just clear the
         // whole DL1 TLB.

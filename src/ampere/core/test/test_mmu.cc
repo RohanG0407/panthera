@@ -563,9 +563,7 @@ TEST_F(MMUTwoFSMTest, PassInvalidationOn)
 {
     auto mmureq = make<MMUReq>(0, 0xffffccf4bb08_va, false);
 
-    std::shared_ptr<archx::Instruction> archx_instr = std::make_shared<archx::InstructionSimple>();
-    auto instr = trans_make<core::Instruction>(std::move(archx_instr), nullptr);
-    auto tlbireq = make<TLBIReq>(5, instr);
+    auto tlbireq = make<TLBIReq>(5, std::make_shared<archx::InstructionSimple>());
 
     EXPECT_CALL(top.data_mmureq_port, can_take()).WillOnce(Return(true)).WillRepeatedly(Return(false));
     EXPECT_CALL(top.data_mmureq_port, take()).WillOnce(Return(mmureq));
@@ -625,9 +623,7 @@ TEST_F(MMUInvalTest, InvalidationLengthensTranslation)
     auto mmureq_0 = make<MMUReq>(0, 0xffffccf4bb08_va, false);
     auto mmureq_1 = make<MMUReq>(1, 0xffffccf4bb08_va, false);
 
-    std::shared_ptr<archx::Instruction> archx_instr = std::make_shared<archx::InstructionSimple>();
-    auto instr = trans_make<core::Instruction>(std::move(archx_instr), nullptr);
-    auto tlbireq = make<TLBIReq>(5, instr);
+    auto tlbireq = make<TLBIReq>(5, std::make_shared<archx::InstructionSimple>());
 
     {
         InSequence s1;

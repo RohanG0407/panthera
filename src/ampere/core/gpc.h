@@ -13,6 +13,7 @@
 #include "ampere/archx/driver.h"
 #include "ampere/core/uop.h"
 #include "ampere/core/flush.h"
+#include "ampere/core/tlbireq.h"
 
 namespace ampere::core {
 
@@ -99,6 +100,10 @@ public:
     sc_core::sc_vector<In<Uop>> mispredict_indirect_port{"mispredict_indirect", num_execution_units};
     In<Uop> raw_scrub_port{"raw_scrub"};
     Out<bool> rob_empty_out{"rob_empty_out"};
+    // TLB invalidations that follow committed instructions (see
+    // archx::Instruction::tlb_invalidations_after()), for the LSU to apply
+    // like the TLBIs it commits
+    Out<TLBIReq> tlb_invalidation_out{"tlb_invalidation_out"};
 
     Event ev_brain_dead{"brain_dead", "Simulation brain dead"};
     Event ev_commit_bypass{"commit_bypass_event", "bypass on this line"};
@@ -167,6 +172,7 @@ private:
     void report();
     void commit_uop(const Uop& uop);
     void commit_instruction(const Instruction& instruction);
+    void send_tlb_invalidations();
     Uop process_mispredicts();
     Uop process_raw_scrubs();
     std::pair<Uop, FlushType> select_older_flusher(const Uop& mispredict, const Uop& raw_scrub);
@@ -186,6 +192,8 @@ private:
     unsigned long get_vmsize();
 
     std::deque<Uop> rob;
+    // Waiting for tlb_invalidation_out, oldest first
+    std::deque<TLBIReq> tlb_invalidations;
 
     std::optional<uint64_t> flush_id{};
     Instruction last_committed_instr;

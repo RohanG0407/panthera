@@ -4,6 +4,7 @@
 //
 #pragma once
 #include <cstdint>
+#include <memory>
 #include <vector>
 #include <optional>
 
@@ -165,6 +166,16 @@ public:
     uint16_t tlbi_by_va_asid() const;
     uint8_t tlbi_by_va_ttl() const;
     VirtAddr tlbi_by_va_addr() const;
+    // TLBIs that invalidated this core's translations between this
+    // instruction and the next without the core executing them (another
+    // core broadcast them, or the instruction stream left out the
+    // instructions that executed them). They take effect when this
+    // instruction commits.
+    virtual const std::vector<std::shared_ptr<const Instruction>>& tlb_invalidations_after() const
+    {
+        static const std::vector<std::shared_ptr<const Instruction>> none;
+        return none;
+    }
 
     AddressTranslationType address_translation_type() const;
     bool is_address_translation() const { return address_translation_type() != AddressTranslationType::NONE; }

@@ -3,7 +3,9 @@
 // SPDX-License-Identifier: BSD-3-Clause
 //
 #include <boost/filesystem/path.hpp>
+#include <cstdio>
 #include "ampere/archx/driver_is.h"
+#include "ampere/instruction_stream/instruction_stream.h"
 #include "ampere/archx/testing/mock_driver.h"
 #include <gtest/gtest.h>
 
@@ -111,6 +113,64 @@ TEST_F(DriverTest, TestCommit)
 
     // Trying to commit the same instruction again will throw an exception
     ASSERT_ANY_THROW(driver.commit(instruction));
+}
+
+TEST_F(DriverTest, TestTlbInvalidationFollowsInstruction)
+{
+    // Three NOPs with a TLBI VALE1IS of VA 0xffff800012345000 and ASID 7
+    // recorded between the first two
+    const std::string stream = "TestTlbInvalidationFollowsInstruction.is";
+    const std::shared_ptr<void> remove_stream(nullptr, [&stream](void*) { std::remove(stream.c_str()); });
+    {
+        is::Features features;
+        features.set_tlb_invalidations(true);
+        is::InstructionStreamWriter writer(stream, features);
+        is::Event control;
+        control.mutable_control()->set_type(is::Control::START_MEASUREMENT);
+        writer.write(control);
+        for (std::uint64_t pc : {0x1000, 0x1004, 0x1008}) {
+            is::Instruction nop;
+            nop.mutable_program_counter()->set_va(pc);
+            nop.set_opcode(0xd503201f);
+            writer.write(nop);
+            if (pc == 0x1000) {
+                is::Event event;
+                is::TlbInvalidation* tlbi = event.mutable_tlb_invalidation();
+                tlbi->set_op1(0);
+                tlbi->set_crn(8);
+                tlbi->set_crm(3);
+                tlbi->set_op2(5);
+                tlbi->set_value(7ULL << 48 | 0xff800012345ULL);
+                writer.write(event);
+            }
+        }
+        control.mutable_control()->set_type(is::Control::STOP_MEASUREMENT);
+        writer.write(control);
+        writer.finalize();
+    }
+
+    DriverIS driver(stream);
+    auto first = driver.fetch(driver.next_pc());
+    auto second = driver.fetch(driver.next_pc());
+
+    ASSERT_EQ(1, first->tlb_invalidations_after().size());
+    EXPECT_TRUE(second->tlb_invalidations_after().empty());
+    const auto& tlbi = *first->tlb_invalidations_after().front();
+    EXPECT_TRUE(tlbi.is_tlbi_by_va_last_level());
+    ASSERT_TRUE(tlbi.can_invalidate_by_va());
+    EXPECT_EQ(7, tlbi.tlbi_by_va_asid());
+    EXPECT_EQ(0xffff800012345000, tlbi.tlbi_by_va_addr().value());
+}
+
+TEST_F(DriverTest, TestTlbInvalidationOfAnotherInstructionIsAnError)
+{
+    // CRn 7 is cache maintenance, not TLB maintenance
+    is::TlbInvalidation not_a_tlbi;
+    not_a_tlbi.set_op1(3);
+    not_a_tlbi.set_crn(7);
+    not_a_tlbi.set_crm(4);
+    not_a_tlbi.set_op2(1);
+    EXPECT_THROW(tlb_invalidation_instruction(not_a_tlbi), std::runtime_error);
 }
 
 TEST_F(DriverTest, TestUDIVSourceRegs)

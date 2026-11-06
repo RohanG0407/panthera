@@ -792,7 +792,7 @@ void ICF::tlb_fill(Fetch& fetch, MMUResp mmuresp)
  */
 void ICF::invalidate_tlb(TLBIReq tlbi)
 {
-    auto& ainst = tlbi->insn->archx_instruction;
+    const auto& ainst = tlbi->tlbi;
 
     // For TLBI by VA with a known Xt, invalidate specific entries. For everything else, just clear the whole ITLB.
     // FIXME: this still over-invalidates in many cases

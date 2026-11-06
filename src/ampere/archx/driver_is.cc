@@ -338,6 +338,11 @@ void DriverIS::record_event(const is::Event& event, InstructionIS& prev)
         const is::SysReg& s = event.sysreg();
         SysReg sysreg = SysReg(s.op0(), s.op1(), s.crn(), s.crm(), s.op2());
         fetch_state = std::move(fetch_state).write(sysreg, s.value());
+    } else if (event.has_tlb_invalidation()) {
+        // Before the first instruction the core's TLBs are empty, so there is
+        // nothing to invalidate
+        if (!prev.inum().initial_bogus_inst())
+            prev.invalidations_after.push_back(tlb_invalidation_instruction(event.tlb_invalidation()));
     } else if (event.has_context()) {
         const is::Context& c = event.context();
         if (c.type() == is::Context::EL) {

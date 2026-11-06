@@ -407,6 +407,8 @@ public:
     Out<TLBIReq> tlbi_immu_request_out{"tlbi_immu_request_out"};
 
     In<TLBIReq> tlbi_request_in{"tlbi_request_in"};
+    // TLB invalidations that follow instructions the GPC committed
+    In<TLBIReq> tlb_invalidation_in{"tlb_invalidation_in"};
 
     Read<Flush> flush{"flush"};
 
@@ -1061,6 +1063,7 @@ private:
     void send_l2_evict_request(Txn tx, const L1DCacheline& evicted);
 
     void gpc_store_commit_response();
+    void forward_tlb_invalidations();
     void gpc_load_commit_response();
 
     template<class Entry>
