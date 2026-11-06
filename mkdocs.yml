@@ -7,6 +7,7 @@ docs_dir: doc
 nav:
   - 'User Guide':
     - UserGuide.md
+    - user-guide/new-machine.md
     - user-guide/model-soc.md
     - user-guide/model-memory.md
     - user-guide/debugging.md
