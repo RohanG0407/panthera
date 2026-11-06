@@ -136,9 +136,10 @@ General options:
         processes' instructions are left out, so the stream jumps
         across context switches; their system register writes and
         the memory they write are still recorded so translation
-        state and memory contents stay correct. Without this, every
-        instruction the CPU executes while a trace is active is
-        recorded. (default: false)
+        state and memory contents stay correct. Their TLB
+        invalidations and other cache maintenance are not recorded.
+        Without this, every instruction the CPU executes while a
+        trace is active is recorded. (default: false)
   trace-vcpu=N
         On a guest with more than one vCPU, trace vCPU N (numbered
         from 0) and no other. Instruction counts, instruction and PC

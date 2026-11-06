@@ -332,7 +332,8 @@ General options:
         across context switches the way it does over a skipped
         async; their system register writes and the memory they
         write are still recorded so translation state (TTBRx_EL1
-        and friends) and memory contents stay correct.
+        and friends) and memory contents stay correct. Their TLB
+        invalidations and other cache maintenance are not recorded.
         Without this, every instruction the CPU executes while a
         trace is active is recorded.
         (default: false)
@@ -1637,18 +1638,13 @@ static void note_external_write(uint64_t pa, size_t len)
 }
 
 /* Note the memory written by an instruction that the stream leaves out
- * (skip-unwatched), so it is recorded like the other vCPUs' writes */
+ * (skip-unwatched), so it is recorded like the other vCPUs' writes. A DC ZVA
+ * left out is noted by dc_zva_cb instead, while it executes. */
 static void note_unrecorded_writes(const tracer::Instruction& insn)
 {
     for (const auto& memop : insn.memops) {
         if (memop.is_store && memop.pa && !memop.is_io)
             note_external_write(memop.pa.value().value(), memop.bytes);
-    }
-    if (is_zva(cache_maint_type(insn.adis_info))) {
-        const auto reg = insn.source_regs.find(MSR_REG(insn.opcode));
-        uint64_t pa;
-        if (reg != insn.source_regs.end() && qemu_plugin_virt_to_phys(reg->second & ~(uint64_t)0x3f, &pa))
-            note_external_write(pa, 64);
     }
 }
 
@@ -1760,13 +1756,23 @@ static void tb_start_pc_cb(unsigned int cpu_index, void* udata)
 }
 
 /* DC ZVA writes memory without a memory callback. Called before every DC ZVA
- * while tracing on a guest with more than one vCPU, to note the block another
- * vCPU zeroes (the tracers handle trace_vcpu's own DC ZVAs). */
+ * while tracing on a guest with more than one vCPU or with skip-unwatched, to
+ * note the block zeroed by another vCPU or by a DC ZVA the stream leaves out
+ * (the tracers handle trace_vcpu's recorded DC ZVAs). The address is
+ * translated here, in the DC ZVA's own context: by the next instruction an
+ * interrupt may have taken the vCPU to EL1, where PAN makes an EL0 address
+ * untranslatable. */
 static void dc_zva_cb(unsigned int cpu_index, void* udata)
 {
-    if (cpu_index == trace_vcpu || !tracing_instructions)
+    if (!tracing_instructions)
         return;
-    other_vcpu_running();
+    if (cpu_index == trace_vcpu) {
+        // before_insn_cb has already updated `watching` for this DC ZVA
+        if (!skip_unwatched || watching)
+            return;
+    } else {
+        other_vcpu_running();
+    }
 
     const uint32_t encoding = (uintptr_t)udata;
     uint64_t va = 0; // Register 31 is XZR here
@@ -2179,7 +2185,7 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb* tb)
         }
         if (tracing_instructions) {
             qemu_plugin_register_vcpu_mem_cb(insn, mem_cb, QEMU_PLUGIN_CB_NO_REGS, QEMU_PLUGIN_MEM_RW, (void*)pc);
-            if (n_vcpus > 1 && IS_DC_ZVA(encoding)) {
+            if ((n_vcpus > 1 || skip_unwatched) && IS_DC_ZVA(encoding)) {
                 qemu_plugin_register_vcpu_insn_exec_cb(
                     insn, dc_zva_cb, QEMU_PLUGIN_CB_R_REGS, (void*)(uintptr_t)encoding);
             }
