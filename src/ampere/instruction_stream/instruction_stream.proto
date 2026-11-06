@@ -105,6 +105,21 @@ message Context {
     uint64 value = 2;
 }
 
+/* A TLB invalidation that affected the traced PE without any Instruction in
+ * the stream executing it: a broadcast TLBI that another PE executed, or a
+ * TLBI that an instruction left out of the stream executed. It takes effect
+ * between the Instructions before and after it. The fields are those of the
+ * TLBI's SYS instruction (op0 is always 1). */
+message TlbInvalidation {
+    uint32 op1 = 1;
+    uint32 crn = 2;
+    uint32 crm = 3;
+    uint32 op2 = 4;
+    /* Value of the TLBI's register operand Xt (address, ASID, TTL); 0 when
+     * the TLBI takes none */
+    uint64 value = 5;
+}
+
 /* Out-of-band controls for the model itself */
 message Control {
     enum Type {
@@ -164,6 +179,10 @@ message Features {
 
     /* DC ZVA instructions contain memops with their addresses and size */
     bool dc_zva_addresses = 11;
+
+    /* Stream contains a TlbInvalidation event for every TLB invalidation that
+     * affected the traced PE but that no Instruction in the stream executed */
+    bool tlb_invalidations = 12;
 }
 
 message Event {
@@ -177,5 +196,6 @@ message Event {
          * infrequently-used fields above 15 to allow for adding additional
          * frequently-used fields later */
         Control control = 16;
+        TlbInvalidation tlb_invalidation = 17;
     }
 }

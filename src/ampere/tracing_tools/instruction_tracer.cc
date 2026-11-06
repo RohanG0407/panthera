@@ -251,6 +251,16 @@ static std::optional<TranslationRegs> traced_translation_regs;
  * mask of the bytes written. */
 static std::unordered_map<uint64_t, uint8_t> external_writes;
 
+/* TLBIs that invalidated trace_vcpu's translations since its last instruction
+ * was written out, without the stream recording them: broadcast ones by other
+ * vCPUs, and ones by instructions skip-unwatched leaves out */
+struct ExternalTlbi
+{
+    uint32_t opcode;
+    uint64_t xt;
+};
+static std::vector<ExternalTlbi> external_tlbis;
+
 /* Trace markers (`hlt #0x38ce` semihosting calls and `hint #0x55`) that
  * other vCPUs executed, to act on before trace_vcpu's next instruction */
 enum class MarkerType {
@@ -332,10 +342,11 @@ General options:
         across context switches the way it does over a skipped
         async; their system register writes and the memory they
         write are still recorded so translation state (TTBRx_EL1
-        and friends) and memory contents stay correct. Their TLB
-        invalidations and other cache maintenance are not recorded.
-        Without this, every instruction the CPU executes while a
-        trace is active is recorded.
+        and friends) and memory contents stay correct, and so are
+        their TLB invalidations, as TLB invalidation events. Their
+        other cache maintenance is not recorded. Without this,
+        every instruction the CPU executes while a trace is active
+        is recorded.
         (default: false)
   trace-vcpu=N
         on a guest with more than one vCPU, trace vCPU N (numbered
@@ -345,9 +356,10 @@ General options:
         every vCPU still update the profiled PIDs, and trace
         markers (`hlt #0x%x` and `hint #0x%x`) executed by another
         vCPU take effect just before vCPU N's next instruction.
-        Memory written by other vCPUs is recorded at the point
-        vCPU N can first observe it, so translations and memory
-        values in the stream stay consistent. (default: %u)
+        Memory written by other vCPUs, and the TLB invalidations
+        they broadcast, are recorded at the point vCPU N can first
+        observe them, so translations and memory values in the
+        stream stay consistent. (default: %u)
   debug=[true|false]
         Enable debug prints for OS forks, context switches,
         and register values. (default: false)
@@ -938,6 +950,7 @@ void update_tracing_status()
         stateaccessor->thaw();
         pending_instruction_frozen = false;
         external_writes.clear();
+        external_tlbis.clear();
         traced_translation_regs.reset();
     }
 
@@ -1555,8 +1568,9 @@ bool is_load_store(tracer::Instruction inst)
  *
  * - freeze the memory the tracers will read when they write out
  *   trace_vcpu's pending instruction (other_vcpu_running());
- * - note the physical memory they write, which is passed to the tracers
- *   right after that instruction (note_external_write());
+ * - note the physical memory they write and the TLB invalidations they
+ *   broadcast, which are passed to the tracers right after that instruction
+ *   (note_external_write(), other_vcpu_tlbi_cb());
  * - defer the trace markers they execute until trace_vcpu's next
  *   instruction (deferred_markers).
  *
@@ -1637,14 +1651,62 @@ static void note_external_write(uint64_t pa, size_t len)
     }
 }
 
-/* Note the memory written by an instruction that the stream leaves out
- * (skip-unwatched), so it is recorded like the other vCPUs' writes. A DC ZVA
- * left out is noted by dc_zva_cb instead, while it executes. */
-static void note_unrecorded_writes(const tracer::Instruction& insn)
+/* Note the memory written and the TLBI executed by an instruction that the
+ * stream leaves out (skip-unwatched), so they are recorded like the other
+ * vCPUs' writes and TLBIs. Any TLBI trace_vcpu executes invalidates its own
+ * translations, local or broadcast. A DC ZVA left out is noted by dc_zva_cb
+ * instead, while it executes. */
+static void note_unrecorded_effects(const tracer::Instruction& insn)
 {
     for (const auto& memop : insn.memops) {
         if (memop.is_store && memop.pa && !memop.is_io)
             note_external_write(memop.pa.value().value(), memop.bytes);
+    }
+    if (adis::tlbi(insn.adis_info)) {
+        // before_insn_cb() records a TLBI's register operand, reading
+        // register 31 as SP, but there it is XZR
+        const unsigned rt = MSR_REG(insn.opcode);
+        const auto reg = insn.source_regs.find(rt);
+        const uint64_t xt = (rt == 31 || reg == insn.source_regs.end()) ? 0 : reg->second;
+        external_tlbis.push_back({insn.opcode, xt});
+    }
+}
+
+/* Whether a TLBI is broadcast to the other PEs of its shareability domain,
+ * as its Inner and Outer Shareable forms are. CRm tells the forms apart,
+ * except that CRm = 0b0100 holds both local and Outer Shareable stage 2
+ * TLBIs by IPA, which op2 tells apart. This matches the names of all 166
+ * TLBI operations in Arm's machine-readable architecture (2026-09). */
+static bool tlbi_is_broadcast(uint32_t opcode)
+{
+    const unsigned crm = (opcode >> 8) & 0xf, op2 = (opcode >> 5) & 0x7;
+    if (crm == 0b0100)
+        return op2 == 0b000 || op2 == 0b011 || op2 == 0b100 || op2 == 0b111;
+    return crm != 0b0110 && crm != 0b0111;
+}
+
+/* Pass external_tlbis to the tracers. Called right after
+ * write_external_writes(), for the same reason. */
+static void write_external_tlbis()
+{
+    bool error = false;
+    for (auto& t : tracers) {
+        if (!t.tracing)
+            continue;
+        for (const auto& tlbi : external_tlbis) {
+            if (!t.tracer->tlb_invalidation(tlbi.opcode, tlbi.xt)) {
+                log("tlb_invalidation() call failed for %s.\n", t.id.c_str());
+                t.tracer->abort_tracing();
+                t.tracing = false;
+                t.stopping_tracing = true;
+                error = true;
+                break;
+            }
+        }
+    }
+    external_tlbis.clear();
+    if (error) {
+        handle_tracing_transition();
     }
 }
 
@@ -1785,6 +1847,27 @@ static void dc_zva_cb(unsigned int cpu_index, void* udata)
     uint64_t pa;
     if (qemu_plugin_virt_to_phys(va & ~(uint64_t)0x3f, &pa))
         note_external_write(pa, 64);
+}
+
+/* Called before every TLBI while tracing on a guest with more than one vCPU,
+ * to note the broadcast TLBIs of other vCPUs, which invalidate trace_vcpu's
+ * translations too. trace_vcpu's own TLBIs are in the stream, or noted by
+ * note_unrecorded_effects() when it leaves them out. */
+static void other_vcpu_tlbi_cb(unsigned int cpu_index, void* udata)
+{
+    if (!tracing_instructions || cpu_index == trace_vcpu)
+        return;
+    other_vcpu_running();
+
+    const uint32_t opcode = (uintptr_t)udata;
+    if (!tlbi_is_broadcast(opcode))
+        return;
+    uint64_t xt = 0; // Register 31 is XZR here
+    if (MSR_REG(opcode) != 31 && !qemu_plugin_read_reg64(&xt, MSR_REG(opcode))) {
+        log("Failed to read the register operand of a TLBI\n");
+        exit(0);
+    }
+    external_tlbis.push_back({opcode, xt});
 }
 
 void before_insn_cb(unsigned int cpu_index, void* udata)
@@ -1933,11 +2016,12 @@ void before_insn_cb(unsigned int cpu_index, void* udata)
             if (sysreg_write) {
                 track_translation_regs(sysreg_write->first, sysreg_write->second);
             }
-            // Memory writes of instructions left out are kept too, for the
-            // same reason as their system register writes: what the
-            // recorded instructions read next has to match the stream.
+            // Memory writes and TLBIs of instructions left out are kept too,
+            // for the same reason as their system register writes: what the
+            // recorded instructions read and translate next has to match the
+            // stream.
             if (!record_instruction && last_instruction) {
-                note_unrecorded_writes(last_instruction.value());
+                note_unrecorded_effects(last_instruction.value());
             }
             if (error) {
                 handle_tracing_transition();
@@ -1957,6 +2041,9 @@ void before_insn_cb(unsigned int cpu_index, void* udata)
         }
         if (!external_writes.empty()) {
             write_external_writes();
+        }
+        if (!external_tlbis.empty()) {
+            write_external_tlbis();
         }
 
         if (tracing_instructions) {
@@ -2188,6 +2275,10 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb* tb)
             if ((n_vcpus > 1 || skip_unwatched) && IS_DC_ZVA(encoding)) {
                 qemu_plugin_register_vcpu_insn_exec_cb(
                     insn, dc_zva_cb, QEMU_PLUGIN_CB_R_REGS, (void*)(uintptr_t)encoding);
+            }
+            if (n_vcpus > 1 && adis::tlbi(adecode(encoding))) {
+                qemu_plugin_register_vcpu_insn_exec_cb(
+                    insn, other_vcpu_tlbi_cb, QEMU_PLUGIN_CB_R_REGS, (void*)(uintptr_t)encoding);
             }
         }
     }

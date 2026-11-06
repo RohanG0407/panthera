@@ -99,6 +99,8 @@ int main(int argc, char** argv)
         {"SVE predicate registers", reader.features().sve_predicate_registers()},
         {"Memop size", reader.features().memop_size()},
         {"NZCV flags on instructions", reader.features().nzcv_flags_on_instructions()},
+        {"DC ZVA addresses", reader.features().dc_zva_addresses()},
+        {"TLB invalidations", reader.features().tlb_invalidations()},
         {nullptr, false}};
     for (str_feature_t* p = str_feature; p->str; ++p) {
         fmt::print("  {:35s}: {}\n", p->str, p->present);
@@ -106,7 +108,7 @@ int main(int argc, char** argv)
     fmt::print("\n");
 
     long event_count = 0, instruction_count = 0, memop_count = 0, memory_count = 0, sysreg_count = 0, context_count = 0,
-         control_count = 0;
+         control_count = 0, tlb_invalidation_count = 0;
     bool measurement_started = (reader.version() < 2) || include_warmup_instrs;
     if (!measurement_started)
         std::cout << "Ignoring instructions before START_MEASUREMENT event" << std::endl;
@@ -257,6 +259,20 @@ int main(int argc, char** argv)
                       << "type: " << Context::Type_Name(context.type()) << " "
                       << "value: " << context.value() << std::endl;
             context_count++;
+        } else if (event.has_tlb_invalidation()) {
+            const TlbInvalidation& tlbi = event.tlb_invalidation();
+            // Disassembled with Rt = 31, and without it, to name the operation
+            const std::uint32_t opcode = 0xd508001f | (tlbi.op1() & 0x7) << 16 | (tlbi.crn() & 0xf) << 12
+                                         | (tlbi.crm() & 0xf) << 8 | (tlbi.op2() & 0x7) << 5;
+            const std::string dis = ampere::disasm::disasm(opcode, 0);
+            std::cout << "TlbInvalidation: "
+                      << "op1: " << std::dec << tlbi.op1() << " "
+                      << "crn: " << tlbi.crn() << " "
+                      << "crm: " << tlbi.crm() << " "
+                      << "op2: " << tlbi.op2() << " "
+                      << "value: 0x" << std::hex << tlbi.value() << " "
+                      << "dis: `" << dis.substr(0, dis.find(',')) << "`" << std::endl;
+            tlb_invalidation_count++;
         } else if (event.has_control()) {
             const Control& control = event.control();
             std::cout << "Control: " << "type: " << Control::Type_Name(control.type()) << std::endl;
@@ -278,6 +294,7 @@ int main(int argc, char** argv)
     std::cout << "sysreg count = " << sysreg_count << std::endl;
     std::cout << "context count = " << context_count << std::endl;
     std::cout << "control count = " << control_count << std::endl;
+    std::cout << "TLB invalidation count = " << tlb_invalidation_count << std::endl;
     std::cout << "total event count = " << event_count << std::endl;
 }
 

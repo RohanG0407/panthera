@@ -48,6 +48,7 @@ public:
         stream_features.set_memop_size(true);
         stream_features.set_nzcv_flags_on_instructions(true);
         stream_features.set_dc_zva_addresses(true);
+        stream_features.set_tlb_invalidations(true);
 
         writer = new is::InstructionStreamWriter(tmp_filename, stream_features);
         assert(writer);
@@ -515,6 +516,19 @@ public:
         writer->write(event);
 
         update_written_mem_chunks(pa, bytes);
+        return true;
+    }
+
+    virtual bool tlb_invalidation(uint32_t opcode, uint64_t xt) override
+    {
+        is::Event event;
+        is::TlbInvalidation* invalidation = event.mutable_tlb_invalidation();
+        invalidation->set_op1((opcode >> 16) & 0x7);
+        invalidation->set_crn((opcode >> 12) & 0xf);
+        invalidation->set_crm((opcode >> 8) & 0xf);
+        invalidation->set_op2((opcode >> 5) & 0x7);
+        invalidation->set_value(xt);
+        writer->write(event);
         return true;
     }
 

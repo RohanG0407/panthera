@@ -88,8 +88,11 @@ with `trace-vcpu=N` (vCPU 0 by default):
   The plugin records their writes (stores, atomics and `DC ZVA`) as memory
   events right before vCPU N's next recorded instruction, wherever the stream
   already describes that memory, so translations and memory values in the
-  stream stay consistent with what vCPU N saw. TLB invalidations broadcast by
-  other vCPUs are not recorded.
+  stream stay consistent with what vCPU N saw.
+* The TLB invalidations other vCPUs broadcast (the Inner and Outer Shareable
+  `TLBI` forms) invalidate vCPU N's translations too. The plugin records each
+  as a TLB invalidation event at the same point, so a model that applies them
+  does not keep translations that vCPU N no longer had.
 * `trace-elf=true` is rejected: an ELF re-executes only the traced vCPU's
   instructions, so the memory other vCPUs write would make it diverge.
 
@@ -136,9 +139,9 @@ General options:
         processes' instructions are left out, so the stream jumps
         across context switches; their system register writes and
         the memory they write are still recorded so translation
-        state and memory contents stay correct. Their TLB
-        invalidations and other cache maintenance are not recorded.
-        Without this, every instruction the CPU executes while a
+        state and memory contents stay correct, and so are their TLB
+        invalidations, as TLB invalidation events. Their other cache
+        maintenance is not recorded. Without this, every instruction the CPU executes while a
         trace is active is recorded. (default: false)
   trace-vcpu=N
         On a guest with more than one vCPU, trace vCPU N (numbered
@@ -148,7 +151,8 @@ General options:
         the profiled PIDs, and trace markers (`hlt #0x38ce` and
         `hint #0x55`) executed by another vCPU take effect just
         before vCPU N's next instruction. Memory written by other
-        vCPUs is recorded where vCPU N can first observe it. See
+        vCPUs, and the TLB invalidations they broadcast, are
+        recorded where vCPU N can first observe them. See
         "Guests with more than one vCPU" above. (default: 0)
   offline-warmup-instructions=INSTRS
         Number of instructions worth of data to capture after start

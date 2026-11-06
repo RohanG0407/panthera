@@ -164,6 +164,16 @@ public:
      * describe the traced instructions' own accesses can ignore it. */
     virtual bool external_write(const archx::PhysAddr pa, size_t bytes) { return true; }
 
+    /* Called when a TLBI that the trace does not show (a broadcast one by
+     * another vCPU, or one by an instruction left out of the trace) has
+     * invalidated translations of the traced vCPU. `opcode` is the TLBI
+     * instruction, whose Rt field does not matter, and `xt` the value of its
+     * register operand (0 if it takes none). Like external_write(), it is
+     * called between instruction_exec() calls, before the first traced
+     * instruction that can observe the invalidation. Tracers that only
+     * describe the traced instructions' own accesses can ignore it. */
+    virtual bool tlb_invalidation(uint32_t opcode, uint64_t xt) { return true; }
+
     /* called just the tracer is created. It allows for capturing the
        state before the first traced instruction. This is primarily
        for the IStracer; others do not care do we supply a default
