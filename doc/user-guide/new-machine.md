@@ -5,7 +5,7 @@ published traces, and run them.
 
 Steps 1 to 5 were run as written on a 160-core aarch64 Linux host. The
 timings below come from that host, which already had Nix installed. Step 6
-(the study list) was not run end to end; see the note there.
+(the study list) was run for one trace only; see the note there.
 
 ## What you need
 
@@ -117,9 +117,14 @@ trace (used for wrong-path execution), disassemblies and footprints:
 fetch 23519872 2024-study-list.tar 2e3cb2fe9a883f2cf8d468cf56d08791
 fetch 23519872 2024-study-list-AUX.tar.xz 8847196ca8c12ceaf492f03f5effc191
 tar -xf 2024-study-list.tar           # creates ampere_traces/
+chmod -R u+w ampere_traces            # see below
 tar -xJf 2024-study-list-AUX.tar.xz   # adds to ampere_traces/
 rm 2024-study-list.tar 2024-study-list-AUX.tar.xz   # optional, frees 158 GB
 ```
+
+The first archive creates 95 of its directories read-only. Without the
+`chmod`, the AUX archive cannot add its files to them and `tar` stops with
+"Permission denied".
 
 The trace lists are `ampere_snippets/perf_check_500.json` and
 `ampere_traces/2024-study_list.json`.
@@ -171,26 +176,82 @@ wait
 
 ## 6. Run study-list traces
 
-Not run end to end. The command below is the standard core study from the
-[Cheetah guide](cheetah.md). It uses the trace list's `.ms` files for cache
-warmup and its `.bs` files for branch-predictor warmup. Each trace runs 10
-million instructions. The trace list's own run-time estimate has a median
-of about 40 minutes per trace, and most fall between 30 and 60 minutes. So
-start with a few traces:
+A study-list run uses the trace list's `.ms` files for cache warmup and its
+`.bs` files for branch-predictor warmup, and measures 10 million
+instructions per trace. Each trace takes tens of minutes, so run the traces
+in parallel. `--run parallel` fails without Slurm (see
+[Known problems](#known-problems)), so create the study with `--dryrun` and
+run its jobs with `panthera cheetah.local`.
+
+The example is the data-prefetcher headroom study,
+`prefetch_headroom_study.py`. It runs every trace three times on the Domino
+core: with the production prefetchers (`baseline`), with every data
+prefetcher off (`no-prefetch`), and with oracle data prefetchers at L1D and
+L2 (`oracle`). To run the standard core study from the
+[Cheetah guide](cheetah.md) instead, use `core_study.py` in the same
+directory.
+
+Select the traces. This picks the four datacenter suites, 1,206 of the
+4,332 traces:
 
 ```bash
 cd ~/traces
 $P tracing.filter_study_list \
     --input-list ampere_traces/2024-study_list.json \
-    --output-list ampere_traces/nest-only.json \
-    --match workload --include '^767.nest$'
-$P study ~/panthera/install/config/cheetah/python/core_study.py \
-    --workloads "$PWD/ampere_traces/nest-only.json" \
-    --name nest-only --run serial
+    --output-list ampere_traces/datacenter-suites.json \
+    --match suite --include '^(CloudInfra|WebServices|Database|SpecJBB)$'
 ```
 
-`--match suite --include CloudInfra` and `--min-weight 0.05` select by suite
-or by trace weight. The full list is about 3,000 CPU-hours.
+`--match workload --include '^767.nest$'` selects one workload,
+`--match trace` one trace, and `--min-weight 0.05` drops low-weight traces.
+Write the output list next to the input list, because the trace paths in it
+are relative to the list's directory.
+
+Create the study directory without running anything, then run it:
+
+```bash
+$P study ~/panthera/install/config/cheetah/python/prefetch_headroom_study.py \
+    --workloads "$PWD/ampere_traces/datacenter-suites.json" \
+    --name pf-headroom-dc --run parallel --dryrun
+$P cheetah.local pf-headroom-dc --jobs 64 \
+    --workloads ampere_traces/datacenter-suites.json
+```
+
+`cheetah.local` options:
+
+- `--jobs N`: simulations to run at once. The default is three quarters of
+  the CPUs. Each simulation uses one CPU and at most about 1 GB of
+  memory.
+- `--workloads LIST`: run each workload's highest-weight trace first, so a
+  study that is stopped early still covers every workload.
+- `--numa-node N`: run only on that NUMA node's CPUs.
+- `--list`: print the jobs that would run and exit.
+
+A job is finished when its log, `<configuration>/<trace>.log`, ends with
+"All commands exited successfully". Running `cheetah.local` again skips the
+finished jobs, so the same command continues an interrupted study and
+retries failed jobs. The study takes hours to days: start it inside `tmux`
+or with `nohup`.
+
+Each job writes `<configuration>/<trace>.summary.csv`. Combine them with
+[rollup](../analysis/rollup.md):
+
+```bash
+$P rollup pf-headroom-dc/study.json \
+    --formula ~/panthera/install/config/rollup/rollup_formula.py
+```
+
+This writes `rollup.by_trace.csv`, `rollup.by_workload.csv` and
+`rollup.by_suite.csv` into the study directory, one row per configuration
+and trace, workload or suite. The IPC column is `sys.soc_0.core_0.ipc`.
+
+What was tested: one trace (`nodejs-misc-util_7992`) through all three
+configurations and the rollup, with `--numa-node 0 --jobs 3`. Each job took
+25 to 27 minutes on a Neoverse N1 core: 7 minutes of branch-predictor
+warmup, then the simulation. The trace list's own estimate for that trace
+is 17 minutes, so expect its estimates (about 824 CPU-hours per
+configuration for the datacenter suites) to be low on a similar host. The
+full datacenter study has not been run to completion.
 
 ## Known problems
 
@@ -201,7 +262,13 @@ this README and are not fixed yet:
   `panthera cheetah.cp --push`, which asks Slurm for Ampere's cluster layout.
   On a machine without Slurm it exits with "Could not establish a
   configuration source", so each job is marked failed even when its
-  simulation finished. `--run serial` skips that step.
+  simulation finished. `--run serial` skips that step, and so does
+  `panthera cheetah.local` (see [step 6](#6-run-study-list-traces)).
+- **Prefetcher-disable configs on Siryn.** `pv/all_prefetchers_disabled.cfg`
+  stops with "override-cfg did not override any config-scope" because the
+  Furiosa core has no GRETCH prefetcher, and `prefetchers/disable_all.cfg`
+  stops with "Not all parameters were matched". The first one loads on
+  Domino, which is what the prefetcher headroom study uses.
 - **Relative `--workloads` path.** The study resolves it from inside the
   study directory, so the simulator reports the trace as missing. Pass an
   absolute path.
