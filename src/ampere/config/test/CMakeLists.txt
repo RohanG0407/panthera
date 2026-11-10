@@ -28,6 +28,7 @@ if(CHEETAH_DRYRUN_TESTS)
         flakiness_study
         rtl_snippets_study
         is_loopfinder_study
+        prefetch_headroom_study
     )
     set(PYTHON_CONFIGS
         domino-study
