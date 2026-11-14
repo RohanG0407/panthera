@@ -84,6 +84,14 @@ public:
      * execution to be later simulated */
     void set_sysreg_callbacks(sysreg_cb msr_callback, sysreg_cb mrs_callback);
 
+    /* The plugin calls before_insn() for every instruction, whatever
+     * needs_before_insn() says. Context then never asks for the translations to
+     * be redone (qemu_plugin_reset) to reach the instruction after an ERET,
+     * exception entry, syscall or counter read: each such reset flushes every
+     * translation and ends the running vCPU's round-robin slice, which slows
+     * the traced vCPU down in guest time and changes what the guest does. */
+    void set_instrument_all(bool value) { instrument_all = value; }
+
     /* Serialize Context to JSON or initialize internal state from it. Intended
      * to be called to save/restore plugin state at the same time checkpoints
      * are saved/restored. */
@@ -91,6 +99,12 @@ public:
     bool from_json(const json& jval);
 
 private:
+    /* Redo the translations so that needs_before_insn() is asked again, unless
+     * every instruction is instrumented anyway (set_instrument_all) */
+    void retranslate();
+
+    bool instrument_all{false};
+
     /* Current vector base addresses, for tracking when EL might be changing */
     uint64_t vbar_el1;
     uint64_t vbar_el2;

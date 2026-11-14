@@ -84,10 +84,19 @@ void Context::set_sysreg_callbacks(sysreg_cb new_msr_callback, sysreg_cb new_mrs
     msr_callback = new_msr_callback;
     mrs_callback = new_mrs_callback;
 
-    // Note: code elsewhere relies upon qemu_plugin_reset being called here. Do
+    // Note: code elsewhere relies upon qemu_plugin_reset being called here
+    // (to add or drop the memory callbacks when tracing starts or stops). Do
     // not remove the next line without ensuring callers of
-    // set_sysreg_callbacks() no longer rely upon this behavior.
-    qemu_plugin_reset(this->plugin_id, reset_callback);
+    // set_sysreg_callbacks() no longer rely upon this behavior. With
+    // instrument_all the plugin registers those callbacks on every
+    // instruction from the start, so there is nothing to redo.
+    retranslate();
+}
+
+void Context::retranslate()
+{
+    if (!instrument_all)
+        qemu_plugin_reset(this->plugin_id, reset_callback);
 }
 
 void Context::before_insn(unsigned int cpu_index, uint64_t pc, uint32_t encoding)
@@ -118,7 +127,7 @@ void Context::before_insn(unsigned int cpu_index, uint64_t pc, uint32_t encoding
 
         current_el = (pstate >> 2) & 0x3;
         update_callback(current_el, current_pid, update_type);
-        qemu_plugin_reset(this->plugin_id, reset_callback);
+        retranslate();
     }
     if (prev_mrs_encoding) {
         if (mrs_callback) {
@@ -137,19 +146,19 @@ void Context::before_insn(unsigned int cpu_index, uint64_t pc, uint32_t encoding
         }
 
         prev_mrs_encoding = std::nullopt;
-        qemu_plugin_reset(this->plugin_id, reset_callback);
+        retranslate();
     }
     if (mrs_callback && IS_MRS(encoding) && (IS_MRS_REG(encoding, CNTVCT_EL0) || IS_MRS_REG(encoding, CNTPCT_EL0))) {
         prev_mrs_encoding = encoding;
-        qemu_plugin_reset(this->plugin_id, reset_callback);
+        retranslate();
     }
 
     if (IS_ERET(encoding)) {
         last_insn_eret = true;
-        qemu_plugin_reset(this->plugin_id, reset_callback);
+        retranslate();
     } else if (IS_SVC(encoding) || IS_HVC(encoding) || IS_SMC(encoding)) {
         last_insn_syscall = true;
-        qemu_plugin_reset(this->plugin_id, reset_callback);
+        retranslate();
     } else if (IS_MSR(encoding)) {
         // register 31 maps to SP the way we are reading these from QEMU, but
         // is XZ for MSR's
@@ -163,16 +172,16 @@ void Context::before_insn(unsigned int cpu_index, uint64_t pc, uint32_t encoding
         if (IS_MSR_REG(encoding, CONTEXTIDR_EL1)) {
             current_pid = val;
             update_callback(current_el, current_pid, ContextUpdateType::CONTEXTIDR);
-            qemu_plugin_reset(this->plugin_id, reset_callback);
+            retranslate();
         } else if (IS_MSR_REG(encoding, VBAR_EL1)) {
             vbar_el1 = val;
-            qemu_plugin_reset(this->plugin_id, reset_callback);
+            retranslate();
         } else if (IS_MSR_REG(encoding, VBAR_EL2)) {
             vbar_el2 = val;
-            qemu_plugin_reset(this->plugin_id, reset_callback);
+            retranslate();
         } else if (IS_MSR_REG(encoding, VBAR_EL3)) {
             vbar_el3 = val;
-            qemu_plugin_reset(this->plugin_id, reset_callback);
+            retranslate();
         } else if (msr_callback) {
             SysReg sysreg =
                 SysReg(MSR_OP0(encoding), MSR_OP1(encoding), MSR_CRN(encoding), MSR_CRM(encoding), MSR_OP2(encoding));

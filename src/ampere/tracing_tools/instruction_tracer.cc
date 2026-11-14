@@ -99,6 +99,7 @@ static uint64_t max_traces = 1;
 static bool profile_el1 = false;
 static bool skip_async = false;
 static bool skip_unwatched = false;
+static bool instrument_all = false;
 static unsigned trace_vcpu = 0;
 static bool profile_children = false;
 static char* profile_comm = nullptr;
@@ -348,6 +349,20 @@ General options:
         every instruction the CPU executes while a trace is active
         is recorded.
         (default: false)
+  instrument-all=[true|false]
+        instrument every instruction for the whole run, so the
+        plugin never has to flush QEMU's translations (each flush
+        ends the running vCPU's slice of the icount round robin).
+        Without it the plugin instruments only the instructions it
+        needs and flushes every translation after each ERET,
+        exception entry, syscall, CONTEXTIDR or VBAR write and
+        counter read of the traced vCPU, and at every tracing state
+        change; on a guest with several vCPUs under -icount that
+        slows the traced vCPU down relative to the others and
+        changes what the guest does. With it the guest runs as it
+        would without the plugin, at the cost of slower emulation
+        before the trace starts.
+        (default: false)
   trace-vcpu=N
         on a guest with more than one vCPU, trace vCPU N (numbered
         from 0) and no other. Instruction counts, instruction and
@@ -518,6 +533,11 @@ bool parse_args(int argc, char** argv)
         } else if (g_strcmp0(tokens[0], "skip-unwatched") == 0) {
             if (!qemu_plugin_bool_parse(tokens[0], tokens[1], &skip_unwatched)) {
                 log("Error: Couldn't parse argument to skip-unwatched= as a boolean\n");
+                return false;
+            }
+        } else if (g_strcmp0(tokens[0], "instrument-all") == 0) {
+            if (!qemu_plugin_bool_parse(tokens[0], tokens[1], &instrument_all)) {
+                log("Error: Couldn't parse argument to instrument-all= as a boolean\n");
                 return false;
             }
         } else if (g_strcmp0(tokens[0], "trace-vcpu") == 0) {
@@ -2260,7 +2280,7 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb* tb)
         uint64_t pc = qemu_plugin_insn_vaddr(insn);
         uint32_t encoding = *((uint32_t*)qemu_plugin_insn_data(insn));
 
-        if (tracers.size() > 0 || context->needs_before_insn(id, pc, encoding)
+        if (instrument_all || tracers.size() > 0 || context->needs_before_insn(id, pc, encoding)
             || ((start_trigger == HINT || stop_trigger == HINT) && IS_HINT(encoding, TRACE_HINT_NUM))
             || (start_trigger == PC && may_run_at(pc, trigger_start_after_pc))
             || (stop_trigger == PC && may_run_at(pc, trigger_stop_after_pc)))
@@ -2270,7 +2290,9 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb* tb)
         if (n_vcpus > 1 && hint_markers_used() && IS_HINT(encoding, TRACE_HINT_NUM)) {
             qemu_plugin_register_vcpu_insn_exec_cb(insn, other_vcpu_hint_cb, QEMU_PLUGIN_CB_R_REGS, nullptr);
         }
-        if (tracing_instructions) {
+        // These check tracing_instructions when they run, so with
+        // instrument_all they are registered before tracing starts too.
+        if (instrument_all || tracing_instructions) {
             qemu_plugin_register_vcpu_mem_cb(insn, mem_cb, QEMU_PLUGIN_CB_NO_REGS, QEMU_PLUGIN_MEM_RW, (void*)pc);
             if ((n_vcpus > 1 || skip_unwatched) && IS_DC_ZVA(encoding)) {
                 qemu_plugin_register_vcpu_insn_exec_cb(
@@ -2423,6 +2445,7 @@ int qemu_plugin_install(qemu_plugin_id_t id, const qemu_info_t* info, int argc, 
     }
 
     context = new Context(id, &plugin_reset_callback, &update_watching, current_el, 0);
+    context->set_instrument_all(instrument_all);
 
     /* If we're collecting a simpoint interval starting from a checkpoint,
      * initialize our internal context to match that checkpoint's */
