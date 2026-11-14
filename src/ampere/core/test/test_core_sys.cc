@@ -132,6 +132,19 @@ TEST_F(RogueCoreIntegrationTest, DumpAtEnd)
     run_instruction_stream(TestModule::testfixture("java11-dacapo-sunflow_97_20200601_4dbec4.is.xz"), 1, 50000_ns);
 }
 
+// The traced core flushes a range of pages (one TLBI VALE1IS per page) while
+// another core does the same for pages of its own, so the stream records one
+// of the other core's TLBIs right after each of the traced core's. The GPC
+// sends that recorded TLBI to the LSU in the cycle it commits the local one,
+// and the LSU gives the MMU ports to the local TLBI first, so the recorded one
+// has to wait in the port for a cycle.
+TEST_F(SirynCoreIntegrationTest, RecordedTlbInvalidationWaitsForCommittedTlbi)
+{
+    run_instruction_stream(TestModule::testfixture("tlbi_after_local_tlbi.is.xz"), 150, 20000_ns);
+
+    EXPECT_GE(event_count("sys.soc_0.core_0.gpc.instruction_commit"), 150);
+}
+
 /*
  * vim: sw=4:ts=4:et:si:cindent:cino=\:0,(0,g0,t0:
  */

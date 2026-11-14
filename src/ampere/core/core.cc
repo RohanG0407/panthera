@@ -87,7 +87,9 @@ void Core::construct()
     connect(l2c.dmmu_response, dmmu.pte_fetch_in).name("l2_to_dmmu_response");
     connect(lsu.mmu_miss_request, dmmu.data_mmu_request).name("lsu_to_dmmu_request");
     connect(lsu.tlbi_request_out, dmmu.tlbi_request_in).name("lsu_to_dmmu_tlbi_request");
-    connect(gpc.tlb_invalidation_out, lsu.tlb_invalidation_in).name("gpc_to_lsu_tlb_invalidation");
+    // A queue, not a delay: the LSU leaves an invalidation here for a cycle
+    // when a TLBI it commits takes the MMU ports (LSU::forward_tlb_invalidations)
+    connect(gpc.tlb_invalidation_out, lsu.tlb_invalidation_in).name("gpc_to_lsu_tlb_invalidation").capacity(2);
     if (lsu.otb_full_sleep)
         connect(dmmu.mmu_can_accept, lsu.mmu_can_accept).name("lsu_to_dmmu_can_accept");
 
