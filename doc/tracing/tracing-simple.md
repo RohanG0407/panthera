@@ -106,6 +106,18 @@ callbacks and with `-singlestep`, so every instruction of vCPU N costs more
 host time than on a single-vCPU guest, and instruction triggers on vCPU N take
 longer to fire when it is often idle.
 
+Pass `instrument-all=true` as well. By default the plugin instruments only the
+instructions it needs, and it has QEMU redo every translation after each
+`ERET`, exception entry, syscall, counter read and `CONTEXTIDR_EL1` or
+`VBAR_ELx` write of vCPU N, and whenever tracing starts or stops. Each of those
+flushes ends the running vCPU's turn, so vCPU N gets less of the host thread
+than the other vCPUs, and the guest does different work than it would
+untraced. On a server workload, for example, vCPU N's threads then batch more
+requests and spend a smaller share of their instructions in the kernel. With
+`instrument-all=true` the plugin instruments every instruction from the start
+and never flushes for these events, so the guest runs as it would without the
+plugin. Emulation before the trace starts is slower.
+
 There are several other methods for causing tracing to stop/start, which are
 covered below, or by passing "-h" as an argument to the plugin:
 
@@ -144,6 +156,19 @@ General options:
         maintenance is not recorded. Without this, every instruction
         the CPU executes while a trace is active is recorded.
         (default: false)
+  instrument-all=[true|false]
+        Instrument every instruction for the whole run, so the
+        plugin never has to flush QEMU's translations (each flush
+        ends the running vCPU's slice of the icount round robin).
+        Without it the plugin instruments only the instructions it
+        needs and flushes every translation after each ERET,
+        exception entry, syscall, CONTEXTIDR or VBAR write and
+        counter read of the traced vCPU, and at every tracing state
+        change; on a guest with several vCPUs under -icount that
+        slows the traced vCPU down relative to the others and
+        changes what the guest does. With it the guest runs as it
+        would without the plugin, at the cost of slower emulation
+        before the trace starts. (default: false)
   trace-vcpu=N
         On a guest with more than one vCPU, trace vCPU N (numbered
         from 0) and no other. Instruction counts, instruction and PC
