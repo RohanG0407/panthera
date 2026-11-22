@@ -11,7 +11,12 @@ namespace ampere::core {
 class BPTageTest : public TestModule
 {
 protected:
-    BPTageTest() : TestModule{{"bpu.tage.btb.sets", 1024}}, context{EL::EL0, 0U, token_generator.next(true)} {}
+    BPTageTest() : BPTageTest({{"bpu.tage.btb.sets", 1024}}) {}
+
+    explicit BPTageTest(std::initializer_list<std::pair<std::string, sc::json>> settings)
+        : TestModule{settings}, context{EL::EL0, 0U, token_generator.next(true)}
+    {
+    }
 
     void SetUp() override { archx::Instruction::set_decoders({"furiosa"}); }
 
@@ -106,6 +111,67 @@ TEST_F(BPTageTest, BTCWrongBranchTypeWillClearBTBSet)
     tage.predict(fetch3, bhr, context);
 
     EXPECT_EQ(fetch3->get_prediction().branch_type, BranchType::NONE);
+}
+
+// Teaching the BTB a call commits that call without an RSB entry, so these tests let the RSB
+// ignore such commits.
+class BPTageRsbTest : public BPTageTest
+{
+protected:
+    BPTageRsbTest() : BPTageTest({{"tage.rsb.ignore_untracked_commits", true}}) {}
+
+    // Teach the BTB a call at `call_pc` to `callee` and a return at `callee`.
+    void learn_call_and_return(ProgramCounter call_pc, ProgramCounter callee)
+    {
+        auto call_fetch = make_fetch(call_pc);
+        tage.predict(call_fetch, bhr, context);
+        BranchInfo call{BranchType::CALL_DIRECT, call_pc, call_fetch, 0};
+        call.taken = true;
+        call.target = callee;
+        tage.train(call, bhr, context);
+
+        auto ret_fetch = make_fetch(callee);
+        tage.predict(ret_fetch, bhr, context);
+        BranchInfo ret{BranchType::RETURN, callee, ret_fetch, 0};
+        ret.taken = true;
+        ret.target = call_pc + 4;
+        tage.train(ret, bhr, context);
+    }
+
+    // Predict and commit a return at `pc`; return whether the RSB predicted it.
+    bool return_at(ProgramCounter pc)
+    {
+        auto fetch = make_fetch(pc);
+        tage.predict(fetch, bhr, context);
+        EXPECT_EQ(fetch->get_prediction().branch_type, BranchType::RETURN);
+        BranchInfo ret{BranchType::RETURN, pc, fetch, 0};
+        tage.train(ret, bhr, context);
+        return ret.rsb_hit;
+    }
+};
+
+TEST_F(BPTageRsbTest, CsfNoCmtFlushOfCallLeavesNoRsbEntry)
+{
+    learn_call_and_return(0x401000_pc, 0x402000_pc);
+
+    // A CSF_NO_CMT flush of the predicted call, before it is dispatched (no BOB entry):
+    // fetching restarts at the call itself.
+    auto fetch = make_fetch(0x401000_pc);
+    tage.predict(fetch, bhr, context);
+    ASSERT_EQ(fetch->get_prediction().branch_type, BranchType::CALL_DIRECT);
+    auto inst = make<Instruction>(std::make_shared<archx::InstructionSimple>(0x401000_pc, 0x94000400), fetch);
+    auto flush = make<Flush>(0x401000_pc, 0x401000_pc, fetch, inst, 1, FlushType::CSF_NO_CMT);
+    tage.recover(flush, nullptr, bhr, context);
+
+    // The call is fetched again and commits from the new fetch.
+    auto refetch = make_fetch(0x401000_pc);
+    tage.predict(refetch, bhr, context);
+    BranchInfo call{BranchType::CALL_DIRECT, 0x401000_pc, refetch, 0};
+    tage.train(call, bhr, context);
+
+    // Its return pops it. Nothing is left for a second return: the flushed fetch's call is gone.
+    EXPECT_TRUE(return_at(0x402000_pc));
+    EXPECT_FALSE(return_at(0x402000_pc));
 }
 
 } // namespace ampere::core

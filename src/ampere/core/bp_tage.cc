@@ -460,6 +460,13 @@ void BP_TAGE::recover(const Flush& flush_info,
         return;
     }
 
+    // A RAW scrub or a CSF_NO_CMT flush restarts at the flushing instruction,
+    // so that instruction comes back in a new fetch and is predicted again.
+    // The old fetch has nothing to correct: pushing its call here would leave
+    // an RSB entry that never commits.
+    if (flush_info->type == FlushType::RAW_SCRUB || flush_info->type == FlushType::CSF_NO_CMT)
+        return;
+
     // The remaining code handles "branch checks", that is corrections from
     // the ICF at instruction decode time. Here we have to worry about maintenance
     // of the RSB in case we missed a call or return, and clearing the BTB in
