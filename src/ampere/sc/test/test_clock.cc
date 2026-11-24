@@ -7,6 +7,9 @@
 #include "ampere/sc/testing/test.h"
 
 #include <gtest/gtest.h>
+#include <memory>
+#include <stdexcept>
+#include <vector>
 #include "ampere/sc/testing/clock_dummy.h"
 
 namespace ampere {
@@ -27,6 +30,32 @@ struct TestRunnable : public Runnable
     Clock& clock;
     std::vector<Cycle> run_history;
     std::vector<Cycle> init_history;
+};
+
+struct ThrowingRunnable : public Runnable
+{
+    bool run() override
+    {
+        ++runs;
+        throw std::runtime_error{"thrown by a test"};
+    }
+
+    int runs{0};
+};
+
+// Schedules other runnables for the cycle in which it is initialized
+struct SchedulingRunnable : public TestRunnable
+{
+    SchedulingRunnable(Clock& clock, int phase) : TestRunnable(clock) { set_phase(phase); }
+
+    void init() override
+    {
+        TestRunnable::init();
+        for (auto* runnable : to_schedule)
+            clock.schedule(runnable, 0);
+    }
+
+    std::vector<Runnable*> to_schedule;
 };
 
 struct ClockTest : public Test
@@ -84,6 +113,51 @@ TEST_F(ClockTest, RunnableInitializes)
     clock.tick();
     std::vector<Cycle> expected_history = {0};
     EXPECT_EQ(runnable.init_history, expected_history);
+}
+
+TEST_F(ClockTest, RunnableScheduledDuringInitIsInitializedAndRuns)
+{
+    ClockDummy clock;
+    SchedulingRunnable first(clock, 1);
+    std::vector<std::unique_ptr<SchedulingRunnable>> others;
+    for (int i = 0; i < 100; i++) {
+        others.push_back(std::make_unique<SchedulingRunnable>(clock, 1));
+        first.to_schedule.push_back(others.back().get());
+    }
+    clock.add_runnable(&first);
+    clock.tick();
+
+    const std::vector<Cycle> expected_history = {0};
+    EXPECT_EQ(first.init_history, expected_history);
+    EXPECT_EQ(first.run_history, expected_history);
+    for (const auto& other : others) {
+        EXPECT_EQ(other->init_history, expected_history);
+        EXPECT_EQ(other->run_history, expected_history);
+    }
+}
+
+TEST_F(ClockTest, TickAfterRunnableThrowsGoesOnWithTheRest)
+{
+    ClockDummy clock;
+    TestRunnable before(clock);
+    ThrowingRunnable thrower;
+    TestRunnable after(clock);
+    clock.schedule(&before, 1);
+    clock.schedule(&thrower, 1);
+    clock.schedule(&after, 1);
+    clock.tick();
+
+    EXPECT_THROW(clock.tick(), std::runtime_error);
+    EXPECT_EQ(clock.get_cycle(), 1);
+    EXPECT_TRUE(after.run_history.empty());
+
+    // The cycle that was cut short finishes: what ran does not run again, and what was left does
+    clock.tick();
+    EXPECT_EQ(clock.get_cycle(), 2);
+    const std::vector<Cycle> expected_history = {1};
+    EXPECT_EQ(before.run_history, expected_history);
+    EXPECT_EQ(thrower.runs, 1);
+    EXPECT_EQ(after.run_history, expected_history);
 }
 
 } // namespace sc
