@@ -1759,26 +1759,29 @@ std::string IDR::disassemble_uop(const Uop& uop)
 {
     // use the core uop disasm instead of archx uop disasm because SVE
     // movprfx fusion changes the operands.
-    std::ostringstream os;
-    os << uop->archx_uop->opcode << " ";
+    //
+    // This is event data for every uop decoded, so it is put together without the cost of a string stream.
+    std::string str = archx::uopcode_to_string(uop->archx_uop->opcode);
+    str += ' ';
     if (uop->reg_dst != archx::LReg::INVALID) {
-        os << uop->reg_dst;
+        str += util::enum_to_string(uop->reg_dst);
     }
     if (uop->reg_dst2 != archx::LReg::INVALID) {
-        os << ", " << uop->reg_dst2;
+        str += ", ";
+        str += util::enum_to_string(uop->reg_dst2);
     }
-    os << " <- ";
+    str += " <- ";
     bool first = true;
     for (const auto& src : uop->reg_src) {
         if (src != archx::LReg::INVALID) {
             if (!first) {
-                os << ", ";
+                str += ", ";
             }
-            os << src;
+            str += util::enum_to_string(src);
             first = false;
         }
     }
-    return os.str();
+    return str;
 }
 
 std::string IDR::allowed_pipes(const Uop& uop) const
