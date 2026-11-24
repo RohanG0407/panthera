@@ -4,6 +4,8 @@
 //
 #pragma once
 
+#include <atomic>
+#include <cstdint>
 #include <deque>
 #include <mutex>
 #include <string>
@@ -205,6 +207,9 @@ protected:
         size_t catch_up(EventStream& stream, size_t index);
         void clear();
 
+        // Changes whenever the definitions do, so a stream can tell without locking that it has nothing to catch up on
+        std::uint64_t revision() const { return current_revision.load(std::memory_order_acquire); }
+
         Definitions() = default;
 
     private:
@@ -229,6 +234,7 @@ protected:
         };
         std::deque<Definition> definitions;
         std::mutex definitions_mtx;
+        std::atomic<std::uint64_t> current_revision{1};
         std::unordered_map<int, EventBase*> events;
     };
 
@@ -263,19 +269,25 @@ protected:
         size_t catch_up(EventStream& stream, size_t index);
         void clear();
 
+        // Changes whenever the enumerations do, as Definitions::revision() does for the definitions
+        std::uint64_t revision() const { return current_revision.load(std::memory_order_acquire); }
+
         Enumerations() = default;
 
     private:
         std::deque<EnumMappingType> enumerations;
         std::unordered_map<std::variant<std::type_index, size_t>, EnumType> enumeration_types;
         std::mutex enumerations_mtx;
+        std::atomic<std::uint64_t> current_revision{1};
     };
 
     Definitions* definitions{nullptr};
     size_t definition_index{0};
+    std::uint64_t definitions_revision{0}; // the revision catch_up() last saw; no revision is ever zero
 
     Enumerations* enumerations{nullptr};
     size_t enumeration_index{0};
+    std::uint64_t enumerations_revision{0};
 
     friend class EventStreamBroadcast;
 };
