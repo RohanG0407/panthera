@@ -53,6 +53,17 @@ bool writeDelimitedTo(const google::protobuf::MessageLite& message,
     return true;
 }
 
+bool writeDelimitedTo(std::span<const std::uint8_t> serialized_message,
+                      google::protobuf::io::ZeroCopyOutputStream* rawOutput)
+{
+    google::protobuf::io::CodedOutputStream output(rawOutput);
+
+    output.WriteLittleEndian32(static_cast<uint32_t>(serialized_message.size()));
+    output.WriteRaw(serialized_message.data(), static_cast<int>(serialized_message.size()));
+
+    return !output.HadError();
+}
+
 bool readDelimitedFrom(google::protobuf::io::ZeroCopyInputStream* rawInput,
                        google::protobuf::MessageLite* message,
                        bool* clean_eof)

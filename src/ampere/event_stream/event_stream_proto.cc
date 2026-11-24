@@ -5,8 +5,11 @@
 #include "event_stream_proto.h"
 
 #include <fcntl.h>
+#include <google/protobuf/io/coded_stream.h>
 #include <google/protobuf/io/zero_copy_stream_impl.h>
 #include <boost/smart_ptr/make_unique.hpp>
+#include <span>
+#include <stdexcept>
 #include <system_error>
 
 #include "ampere/event_stream/event_stream.h"
@@ -14,6 +17,98 @@
 #include "ampere/protobuf_utils/protobuf_utils.h"
 
 namespace ampere::event_stream {
+
+namespace {
+
+// Events are by far the most frequent record, so they are encoded straight into a reused buffer rather than
+// through event_stream_proto::Event objects, which cost several allocations per event. What is written must stay
+// byte for byte what protobuf serializes for the Event and Value messages of event_stream.proto: fields in
+// field-number order, and a field without presence left out when it is zero. test_writer.cc compares the two.
+
+using google::protobuf::io::CodedOutputStream;
+
+enum class WireType : std::uint32_t {
+    VARINT = 0,
+    LENGTH_DELIMITED = 2
+};
+
+constexpr std::uint8_t make_tag(int field_number, WireType wire_type)
+{
+    const auto tag = (static_cast<std::uint32_t>(field_number) << 3) | static_cast<std::uint32_t>(wire_type);
+    if (tag >= 0x80)
+        throw std::logic_error("the event encoder assumes one-byte tags");
+    return static_cast<std::uint8_t>(tag);
+}
+
+constexpr auto RECORD_EVENT_TAG = make_tag(event_stream_proto::Record::kEventFieldNumber, WireType::LENGTH_DELIMITED);
+constexpr auto EVENT_DEFINITION_ID_TAG =
+    make_tag(event_stream_proto::Event::kDefinitionIdFieldNumber, WireType::VARINT);
+constexpr auto EVENT_ID_TAG = make_tag(event_stream_proto::Event::kIdFieldNumber, WireType::VARINT);
+constexpr auto EVENT_TIME_TAG = make_tag(event_stream_proto::Event::kTimeFieldNumber, WireType::VARINT);
+constexpr auto EVENT_VALUES_TAG = make_tag(event_stream_proto::Event::kValuesFieldNumber, WireType::LENGTH_DELIMITED);
+constexpr auto VALUE_DEFINITION_ID_TAG =
+    make_tag(event_stream_proto::Value::kDefinitionIdFieldNumber, WireType::VARINT);
+constexpr auto VALUE_INT_VALUE_TAG = make_tag(event_stream_proto::Value::kIntValueFieldNumber, WireType::VARINT);
+constexpr auto VALUE_UINT_VALUE_TAG = make_tag(event_stream_proto::Value::kUintValueFieldNumber, WireType::VARINT);
+constexpr auto VALUE_STRING_VALUE_TAG =
+    make_tag(event_stream_proto::Value::kStringValueFieldNumber, WireType::LENGTH_DELIMITED);
+
+constexpr std::size_t MAX_VARINT_SIZE = 10;
+constexpr std::size_t MAX_VARINT_FIELD_SIZE = 1 + MAX_VARINT_SIZE;
+constexpr std::size_t MAX_LENGTH_SIZE = 5;
+
+// Room at the front of EventHandleProto::record for RECORD_EVENT_TAG and the length of the Event
+constexpr std::size_t RECORD_HEADER_SIZE = 1 + MAX_LENGTH_SIZE;
+
+std::size_t int32_field_size(std::int32_t value)
+{
+    return value == 0 ? 0 : 1 + CodedOutputStream::VarintSize32SignExtended(value);
+}
+
+std::uint8_t* write_int32_field(std::uint8_t tag, std::int32_t value, std::uint8_t* target)
+{
+    if (value == 0)
+        return target;
+    *target++ = tag;
+    return CodedOutputStream::WriteVarint32SignExtendedToArray(value, target);
+}
+
+std::uint8_t* write_int64_field(std::uint8_t tag, std::uint64_t value, std::uint8_t* target)
+{
+    if (value == 0)
+        return target;
+    *target++ = tag;
+    return CodedOutputStream::WriteVarint64ToArray(value, target);
+}
+
+// Grow `buffer` by `max_size` bytes for `encode` to write into, then keep only the bytes up to where it stopped
+template<typename Encode>
+void append(std::vector<std::uint8_t>& buffer, std::size_t max_size, Encode&& encode)
+{
+    const auto size = buffer.size();
+    buffer.resize(size + max_size);
+    const auto* end = encode(buffer.data() + size);
+    buffer.resize(end - buffer.data());
+}
+
+// Append a Value holding the member of its oneof that `value_tag` names. That member is written even when zero.
+void append_integer_value(std::vector<std::uint8_t>& event,
+                          DataType data_type,
+                          std::uint8_t value_tag,
+                          std::uint64_t value)
+{
+    append(event, 2 + 2 * MAX_VARINT_FIELD_SIZE, [&](std::uint8_t* target) {
+        *target++ = EVENT_VALUES_TAG;
+        auto* length = target++; // two varint fields always fit the single-byte form of a length
+        target = write_int32_field(VALUE_DEFINITION_ID_TAG, data_type, target);
+        *target++ = value_tag;
+        target = CodedOutputStream::WriteVarint64ToArray(value, target);
+        *length = static_cast<std::uint8_t>(target - length - 1);
+        return target;
+    });
+}
+
+} // namespace
 
 EventStreamProto::EventStreamProto(int fd)
 {
@@ -162,30 +257,23 @@ void EventStreamProto::set_json_parameter(const std::string& name,
     write(parameter);
 }
 
-void EventStreamProto::post_event(EventType event_type, std::uint64_t time)
-{
-    catch_up();
-
-    auto id = current_event_id++;
-    event_stream_proto::Event event_proto;
-
-    event_proto.set_id(id);
-    event_proto.set_definition_id(event_type);
-    event_proto.set_time(time);
-
-    write(event_proto);
-}
-
 EventHandle EventStreamProto::open_event(EventType event_type, std::uint64_t time)
 {
     catch_up();
 
-    auto id = current_event_id++;
-    auto eh = event_handle_pool.construct();
+    const std::uint64_t id = current_event_id++;
 
-    eh->event_proto.set_id(id);
-    eh->event_proto.set_definition_id(event_type);
-    eh->event_proto.set_time(time);
+    if (free_event_handles.empty())
+        free_event_handles.push_back(&event_handles.emplace_back());
+    auto eh = free_event_handles.back();
+    free_event_handles.pop_back();
+
+    eh->record.resize(RECORD_HEADER_SIZE);
+    append(eh->record, 3 * MAX_VARINT_FIELD_SIZE, [&](std::uint8_t* target) {
+        target = write_int32_field(EVENT_DEFINITION_ID_TAG, event_type, target);
+        target = write_int64_field(EVENT_ID_TAG, id, target);
+        return write_int64_field(EVENT_TIME_TAG, time, target);
+    });
 
     return eh;
 }
@@ -193,32 +281,49 @@ EventHandle EventStreamProto::open_event(EventType event_type, std::uint64_t tim
 void EventStreamProto::close_event(EventHandle event)
 {
     auto eh = static_cast<EventHandleProto*>(event);
-    write(eh->event_proto);
-    event_handle_pool.destroy(eh);
+
+    if (enabled) {
+        // The Event's length is only known now, so its header goes right in front of it in the room left for it
+        const auto event_size = eh->record.size() - RECORD_HEADER_SIZE;
+        const auto header_size = 1 + CodedOutputStream::VarintSize32(static_cast<std::uint32_t>(event_size));
+        auto* header = eh->record.data() + RECORD_HEADER_SIZE - header_size;
+        *header = RECORD_EVENT_TAG;
+        CodedOutputStream::WriteVarint32ToArray(static_cast<std::uint32_t>(event_size), header + 1);
+
+        std::unique_lock<std::mutex> lock{output_mtx};
+        ev_writer->write_serialized({header, header_size + event_size});
+    }
+
+    free_event_handles.push_back(eh);
 }
 
 void EventStreamProto::add_int_data(EventHandle event, DataType data_type, std::int64_t value)
 {
     auto eh = static_cast<EventHandleProto*>(event);
-    auto new_value = eh->event_proto.add_values();
-    new_value->set_definition_id(data_type);
-    new_value->set_int_value(value);
+    append_integer_value(eh->record, data_type, VALUE_INT_VALUE_TAG, static_cast<std::uint64_t>(value));
 }
 
 void EventStreamProto::add_uint_data(EventHandle event, DataType data_type, std::uint64_t value)
 {
     auto eh = static_cast<EventHandleProto*>(event);
-    auto new_value = eh->event_proto.add_values();
-    new_value->set_definition_id(data_type);
-    new_value->set_uint_value(value);
+    append_integer_value(eh->record, data_type, VALUE_UINT_VALUE_TAG, value);
 }
 
 void EventStreamProto::add_string_data(EventHandle event, DataType data_type, const std::string& value)
 {
     auto eh = static_cast<EventHandleProto*>(event);
-    auto new_value = eh->event_proto.add_values();
-    new_value->set_definition_id(data_type);
-    new_value->set_string_value(value);
+    const auto string_size = static_cast<std::uint32_t>(value.size());
+    const auto value_size = static_cast<std::uint32_t>(int32_field_size(data_type) + 1
+                                                       + CodedOutputStream::VarintSize32(string_size) + string_size);
+
+    append(eh->record, 1 + MAX_LENGTH_SIZE + value_size, [&](std::uint8_t* target) {
+        *target++ = EVENT_VALUES_TAG;
+        target = CodedOutputStream::WriteVarint32ToArray(value_size, target);
+        target = write_int32_field(VALUE_DEFINITION_ID_TAG, data_type, target);
+        *target++ = VALUE_STRING_VALUE_TAG;
+        target = CodedOutputStream::WriteVarint32ToArray(string_size, target);
+        return CodedOutputStream::WriteRawToArray(value.data(), static_cast<int>(string_size), target);
+    });
 }
 
 void EventStreamProto::start_simulation()
@@ -280,16 +385,6 @@ void EventStreamProto::write(event_stream_proto::Control& control)
     record.set_allocated_control(&control);
     this->write(record);
     static_cast<void>(record.release_control());
-}
-
-void EventStreamProto::write(event_stream_proto::Event& event)
-{
-    if (enabled) {
-        event_stream_proto::Record record;
-        record.set_allocated_event(&event);
-        write(record);
-        static_cast<void>(record.release_event());
-    }
 }
 
 void EventStreamProto::write(event_stream_proto::Parameter& parameter)

@@ -6,8 +6,16 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <cstdint>
+#include <cstring>
+#include <deque>
+#include <fstream>
+#include <iterator>
+#include <limits>
 #include <sstream>
+#include <string>
 #include <utility>
+#include <vector>
 #include <gtest/gtest.h>
 
 #include <google/protobuf/io/zero_copy_stream_impl.h>
@@ -62,6 +70,32 @@ protected:
         if (!input_stream)
             input_stream = reopen_test_file();
         return clearAndReadDelimitedFrom(input_stream.get(), &read_record, nullptr);
+    }
+
+    // The serialized form of each Event record in the test file, exactly as it was written
+    static std::vector<std::string> written_event_records()
+    {
+        std::ifstream file(test_file_name(), std::ios::binary);
+        const std::string contents{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+
+        std::vector<std::string> events;
+        std::size_t pos = 2 * sizeof(std::uint32_t); // skip the magic number and version
+        while (pos < contents.size()) {
+            std::uint32_t size;
+            EXPECT_LE(pos + sizeof(size), contents.size());
+            std::memcpy(&size, contents.data() + pos, sizeof(size)); // little endian, as is every supported host
+            pos += sizeof(size);
+            EXPECT_LE(pos + size, contents.size());
+
+            auto serialized = contents.substr(pos, size);
+            pos += size;
+
+            event_stream_proto::Record record;
+            EXPECT_TRUE(record.ParseFromString(serialized));
+            if (record.has_event())
+                events.push_back(std::move(serialized));
+        }
+        return events;
     }
 
     int fd{0};
@@ -239,6 +273,168 @@ TEST_F(EventStreamTest, PostAllIntegralTypes)
     EXPECT_EQ(read_record.event().values(7).uint_value(), ul);
     EXPECT_EQ(read_record.event().values(8).int_value(), sll);
     EXPECT_EQ(read_record.event().values(9).uint_value(), ull);
+}
+
+// Applies everything it is asked to both to an event being written and to the protobuf message that describes it
+class MirroredEvent
+{
+public:
+    MirroredEvent(
+        EventStream& stream, event_stream_proto::Record& record, EventType type, std::int64_t id, std::uint64_t time)
+        : es(stream), handle(stream.open_event(type, time)), expected(*record.mutable_event())
+    {
+        expected.set_definition_id(type);
+        expected.set_id(id);
+        expected.set_time(static_cast<std::int64_t>(time));
+    }
+
+    void add(DataType type, std::int64_t value)
+    {
+        es.add_int_data(handle, type, value);
+        new_value(type)->set_int_value(value);
+    }
+
+    void add(DataType type, std::uint64_t value)
+    {
+        es.add_uint_data(handle, type, value);
+        new_value(type)->set_uint_value(value);
+    }
+
+    void add(DataType type, const std::string& value)
+    {
+        es.add_string_data(handle, type, value);
+        new_value(type)->set_string_value(value);
+    }
+
+    void close() { es.close_event(handle); }
+
+private:
+    event_stream_proto::Value* new_value(DataType type)
+    {
+        auto value = expected.add_values();
+        value->set_definition_id(type);
+        return value;
+    }
+
+    EventStream& es;
+    EventHandle handle;
+    event_stream_proto::Event& expected;
+};
+
+// Events are not written through protobuf messages, so check that every byte is what protobuf would have written
+TEST_F(EventStreamTest, EventsAreSerializedAsProtobufSerializesThem)
+{
+    const std::int64_t int_values[] = {0,
+                                       1,
+                                       -1,
+                                       127,
+                                       128,
+                                       -128,
+                                       1234567890123,
+                                       std::numeric_limits<std::int64_t>::min(),
+                                       std::numeric_limits<std::int64_t>::max()};
+    const std::uint64_t uint_values[] = {
+        0, 1, 127, 128, 16383, 16384, 1ull << 63, std::numeric_limits<std::uint64_t>::max()};
+    const std::string string_values[] = {"",
+                                         "hello world",
+                                         std::string(127, 'a'),
+                                         std::string(128, 'b'),
+                                         std::string(20000, 'c'),
+                                         std::string("embedded\0nul", 13),
+                                         "caf\xc3\xa9"};
+    const std::uint64_t times[] = {0, 1, 127, 128, 123456789, 1ull << 63, std::numeric_limits<std::uint64_t>::max()};
+
+    std::deque<event_stream_proto::Record> expected; // a deque, for references that stay valid as it grows
+    std::int64_t id = 0;
+
+    {
+        auto es = make_es();
+        const auto event_def = es->define_event("foo", "a foo");
+        const auto int_def = es->define_data("bar", "a bar");
+        const auto uint_def = es->define_data("baz", "a baz");
+        const auto string_def = es->define_data("qux", "a qux");
+
+        // No values at all, for each time and for event types that are zero and negative
+        for (auto time : times) {
+            for (EventType type : {event_def, 0, -1}) {
+                MirroredEvent event(*es, expected.emplace_back(), type, id++, time);
+                event.close();
+            }
+        }
+
+        // One value of each kind, for data types that are zero and negative too
+        for (DataType type : {int_def, 0, -1}) {
+            for (auto value : int_values) {
+                MirroredEvent event(*es, expected.emplace_back(), event_def, id++, 200);
+                event.add(type, value);
+                event.close();
+            }
+            for (auto value : uint_values) {
+                MirroredEvent event(*es, expected.emplace_back(), event_def, id++, 200);
+                event.add(type, value);
+                event.close();
+            }
+            for (const auto& value : string_values) {
+                MirroredEvent event(*es, expected.emplace_back(), event_def, id++, 200);
+                event.add(type, value);
+                event.close();
+            }
+        }
+
+        // Every value in one event
+        {
+            MirroredEvent event(*es, expected.emplace_back(), event_def, id++, 1950);
+            for (auto value : int_values)
+                event.add(int_def, value);
+            for (auto value : uint_values)
+                event.add(uint_def, value);
+            for (const auto& value : string_values)
+                event.add(string_def, value);
+            event.close();
+        }
+
+        // Events whose length takes one, two and three bytes to encode, the last one larger than the output buffer.
+        // A short event follows each so that a reused handle is seen not to keep anything of its previous event.
+        for (int num_values : {1, 60, 3000}) {
+            MirroredEvent event(*es, expected.emplace_back(), event_def, id++, 1950);
+            for (int i = 0; i < num_values; ++i)
+                event.add(uint_def, static_cast<std::uint64_t>(i) << 20);
+            event.close();
+
+            MirroredEvent short_event(*es, expected.emplace_back(), event_def, id++, 1951);
+            short_event.add(int_def, std::int64_t{-5});
+            short_event.close();
+        }
+
+        // Two events open at once are written in the order they are closed
+        {
+            event_stream_proto::Record first_opened;
+            MirroredEvent first(*es, first_opened, event_def, id++, 10);
+            MirroredEvent second(*es, expected.emplace_back(), event_def, id++, 20);
+            first.add(int_def, std::int64_t{1});
+            second.add(string_def, std::string("second"));
+            first.add(uint_def, std::uint64_t{2});
+            second.close();
+            first.close();
+            expected.push_back(first_opened);
+        }
+
+        // An event posted while the stream is disabled is not written, but it does use up an id
+        es->disable();
+        es->post_event(event_def, 300);
+        id++;
+        es->enable();
+        {
+            MirroredEvent event(*es, expected.emplace_back(), event_def, id++, 301);
+            event.close();
+        }
+    }
+
+    const auto written = written_event_records();
+    ASSERT_EQ(expected.size(), written.size());
+    for (std::size_t i = 0; i < expected.size(); ++i)
+        EXPECT_EQ(expected[i].SerializeAsString(), written[i])
+            << "event " << i << ": " << expected[i].ShortDebugString();
 }
 
 TEST_F(EventStreamTest, PostParameters)

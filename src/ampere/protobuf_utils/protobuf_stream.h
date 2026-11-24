@@ -5,6 +5,8 @@
 
 #include <google/protobuf/io/zero_copy_stream_impl.h>
 #include <boost/filesystem.hpp>
+#include <cstdint>
+#include <span>
 
 #include "protobuf_utils.h"
 
@@ -20,6 +22,8 @@ public:
     ~ProtobufStreamWriter();
     template<typename Item>
     bool write(const Item& item);
+    // Write an item that the caller has already serialized
+    bool write_serialized(std::span<const std::uint8_t> serialized_item);
     bool flush();
 
 protected:
@@ -34,6 +38,11 @@ template<typename Item>
 bool ProtobufStreamWriter::write(const Item& item)
 {
     return writeDelimitedTo(item, output_stream.get());
+}
+
+inline bool ProtobufStreamWriter::write_serialized(std::span<const std::uint8_t> serialized_item)
+{
+    return writeDelimitedTo(serialized_item, output_stream.get());
 }
 
 class ProtobufStreamReader
