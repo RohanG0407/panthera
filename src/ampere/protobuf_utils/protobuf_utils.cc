@@ -34,34 +34,36 @@ bool writeDelimitedTo(const google::protobuf::MessageLite& message,
     // We create a new coded stream for each message.  Don't worry, this is fast.
     google::protobuf::io::CodedOutputStream output(rawOutput);
 
+    return writeDelimitedTo(message, &output);
+}
+
+bool writeDelimitedTo(const google::protobuf::MessageLite& message, google::protobuf::io::CodedOutputStream* output)
+{
     // Write the size.
     const int size = message.ByteSizeLong();
-    output.WriteLittleEndian32(size);
+    output->WriteLittleEndian32(size);
 
-    uint8_t* buffer = output.GetDirectBufferForNBytesAndAdvance(size);
+    uint8_t* buffer = output->GetDirectBufferForNBytesAndAdvance(size);
     if (buffer != nullptr) {
         // Optimization:  The message fits in one buffer, so use the faster
         // direct-to-array serialization path.
         message.SerializeWithCachedSizesToArray(buffer);
     } else {
         // Slightly-slower path when the message is multiple buffers.
-        message.SerializeWithCachedSizes(&output);
-        if (output.HadError())
+        message.SerializeWithCachedSizes(output);
+        if (output->HadError())
             return false;
     }
 
     return true;
 }
 
-bool writeDelimitedTo(std::span<const std::uint8_t> serialized_message,
-                      google::protobuf::io::ZeroCopyOutputStream* rawOutput)
+bool writeDelimitedTo(std::span<const std::uint8_t> serialized_message, google::protobuf::io::CodedOutputStream* output)
 {
-    google::protobuf::io::CodedOutputStream output(rawOutput);
+    output->WriteLittleEndian32(static_cast<uint32_t>(serialized_message.size()));
+    output->WriteRaw(serialized_message.data(), static_cast<int>(serialized_message.size()));
 
-    output.WriteLittleEndian32(static_cast<uint32_t>(serialized_message.size()));
-    output.WriteRaw(serialized_message.data(), static_cast<int>(serialized_message.size()));
-
-    return !output.HadError();
+    return !output->HadError();
 }
 
 bool readDelimitedFrom(google::protobuf::io::ZeroCopyInputStream* rawInput,

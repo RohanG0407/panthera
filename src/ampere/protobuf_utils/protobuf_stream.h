@@ -3,9 +3,12 @@
 // SPDX-License-Identifier: BSD-3-Clause
 //
 
+#include <google/protobuf/io/coded_stream.h>
 #include <google/protobuf/io/zero_copy_stream_impl.h>
 #include <boost/filesystem.hpp>
 #include <cstdint>
+#include <cstdio>
+#include <memory>
 #include <span>
 
 #include "protobuf_utils.h"
@@ -28,21 +31,28 @@ public:
 
 protected:
     boost::filesystem::path filepath;
-    std::unique_ptr<google::protobuf::io::FileOutputStream> output_stream;
 
 private:
+    void start(int fd, uint32_t magic_number, uint32_t version);
+
+    // Only written to through coded_stream, which holds part of its buffer between flushes: writing to it or
+    // flushing it directly would put the part of that buffer that is not yet filled into the output
+    std::unique_ptr<google::protobuf::io::FileOutputStream> output_stream;
+    // Kept for every item written, because a coded stream costs more to set up and tear down than a small item
+    // costs to write. Bytes it holds only reach output_stream when it is trimmed, which flush() does.
+    std::unique_ptr<google::protobuf::io::CodedOutputStream> coded_stream;
     FILE* fp{nullptr};
 };
 
 template<typename Item>
 bool ProtobufStreamWriter::write(const Item& item)
 {
-    return writeDelimitedTo(item, output_stream.get());
+    return writeDelimitedTo(item, coded_stream.get());
 }
 
 inline bool ProtobufStreamWriter::write_serialized(std::span<const std::uint8_t> serialized_item)
 {
-    return writeDelimitedTo(serialized_item, output_stream.get());
+    return writeDelimitedTo(serialized_item, coded_stream.get());
 }
 
 class ProtobufStreamReader
