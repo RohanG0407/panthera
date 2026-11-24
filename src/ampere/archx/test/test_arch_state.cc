@@ -289,6 +289,58 @@ TEST(testMemory, testWriteLargeBlock)
     ASSERT_EQ(empty.read(base, 1), 0);
 }
 
+// One record of a memory image file: an address, a size and that many bytes
+static void add_record(std::string& file, uint64_t address, const std::vector<uint8_t>& bytes)
+{
+    const auto size = static_cast<uint32_t>(bytes.size());
+    file.append(reinterpret_cast<const char*>(&address), sizeof(address));
+    file.append(reinterpret_cast<const char*>(&size), sizeof(size));
+    file.append(bytes.begin(), bytes.end());
+}
+
+TEST(testMemory, testLoadMemory)
+{
+    std::string file;
+    add_record(file, 0x1000, {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99});
+    add_record(file, 0x7fff00000ffd, {0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6}); // across a page boundary
+    add_record(file, 0x1002, {0xee});                                       // over part of an earlier record
+
+    // Written before loading: one word that the image covers and one that it does not
+    ArchState before;
+    before = std::move(before).write(0x1000_pa, uint64_t{0xffffffffffffffff});
+    before = std::move(before).write(0x2000_pa, uint64_t{0x0123456789abcdef});
+
+    std::istringstream stream{file};
+    const ArchState loaded = before.load_memory(stream);
+
+    // What is loaded takes the place of what was there, and leaves the rest
+    EXPECT_EQ(loaded.read(0x1000_pa), 0x8877665544ee2211);
+    EXPECT_EQ(loaded.read(0x1008_pa), 0x99);
+    EXPECT_EQ(loaded.read(0x2000_pa), 0x0123456789abcdef);
+    EXPECT_EQ(loaded.read(0x7fff00000ff8_pa), 0xa3a2a10000000000);
+    EXPECT_EQ(loaded.read(0x7fff00001000_pa), 0xa6a5a4);
+    EXPECT_EQ(loaded.read(0x3000_pa), 0);
+
+    // The state it was loaded into is as it was
+    EXPECT_EQ(before.read(0x1000_pa), 0xffffffffffffffff);
+    EXPECT_EQ(before.read(0x1008_pa), 0);
+
+    // A write after loading takes the place of what was loaded, in the state it returns only
+    const ArchState written = loaded.write(0x1001_pa, uint8_t{0x5a});
+    EXPECT_EQ(written.read(0x1000_pa), 0x8877665544ee5a11);
+    EXPECT_EQ(loaded.read(0x1000_pa), 0x8877665544ee2211);
+
+    // Loading again keeps what was loaded and written before, where the new image does not cover it
+    std::string second_file;
+    add_record(second_file, 0x1008, {0x01, 0x02});
+    std::istringstream second_stream{second_file};
+    const ArchState reloaded = written.load_memory(second_stream);
+    EXPECT_EQ(reloaded.read(0x1000_pa), 0x8877665544ee5a11);
+    EXPECT_EQ(reloaded.read(0x1008_pa), 0x0201);
+    EXPECT_EQ(reloaded.read(0x7fff00001000_pa), 0xa6a5a4);
+    EXPECT_EQ(written.read(0x1008_pa), 0x99);
+}
+
 TEST(testArchState, testInterspersedWrites)
 {
     ArchState state;
