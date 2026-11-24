@@ -67,6 +67,8 @@ private:
 
     ArchState raw_write(PhysAddr addr, uint64_t value, uint64_t mask) const;
     uint64_t raw_read(uint64_t addr, size_t size = 8) const;
+    // Write a block to this state's own memory, for a state that is being built up from a memory image
+    void write_block(PhysAddr addr, const uint8_t* data, size_t size);
 
     memory_map memory;
     gp_reg_map gp_registers;

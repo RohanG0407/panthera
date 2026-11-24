@@ -7,6 +7,7 @@
 #include "ampere/sc/report.h"
 #include <inttypes.h>
 #include <algorithm>
+#include <cstring>
 #include <stdexcept>
 #include <vector>
 #include <fmt/format.h>
@@ -56,27 +57,43 @@ ArchState ArchState::write(PhysAddr addr, uint64_t value) const
 ArchState ArchState::write(PhysAddr addr, const uint8_t* data, size_t size) const
 {
     ArchState state = *this;
+    state.write_block(addr, data, size);
+    return state;
+}
 
+void ArchState::write_block(PhysAddr addr, const uint8_t* data, size_t size)
+{
+    // A memory image is millions of words. Writing each through write(), which returns a new state, copies the
+    // part of the map that the word is in every time, because the state written to still refers to it. Here the
+    // map is this state's own: set() copies a part of it that another state shares the first time it changes it,
+    // and after that changes it in place.
     while (size) {
-        size_t written = 0;
-        if (addr.extract_range(0, 0) || size < 2) {
-            state = std::move(state).write(addr, *data);
+        // The largest power of two of bytes, up to a word, that `addr` is aligned to and that are left to write,
+        // so that what is written never crosses a word of the map
+        size_t written = 8;
+        if (addr.extract_range(0, 0) || size < 2)
             written = 1;
-        } else if (addr.extract_range(1, 0) || size < 4) {
-            state = std::move(state).write(addr, *(uint16_t*)data);
+        else if (addr.extract_range(1, 0) || size < 4)
             written = 2;
-        } else if (addr.extract_range(2, 0) || size < 8) {
-            state = std::move(state).write(addr, *(uint32_t*)data);
+        else if (addr.extract_range(2, 0) || size < 8)
             written = 4;
+
+        uint64_t value = 0;
+        std::memcpy(&value, data, written);
+
+        if (written == 8) {
+            memory = std::move(memory).set(addr.value(), value);
         } else {
-            state = std::move(state).write(addr, *(uint64_t*)data);
-            written = 8;
+            const uint64_t aligned = addr.value() & 0xfffffffffffffff8;
+            const size_t shift = addr.extract_range(2, 0) * 8;
+            const uint64_t mask = ((uint64_t{1} << (written * 8)) - 1) << shift;
+            memory = std::move(memory).set(aligned, (memory[aligned] & ~mask) | (value << shift));
         }
+
         size -= written;
         data += written;
         addr += written;
     }
-    return state;
 }
 
 ArchState ArchState::load_memory(std::istream& is) const
@@ -94,7 +111,7 @@ ArchState ArchState::load_memory(std::istream& is) const
         data.resize(size);
         is.read((char*)data.data(), size);
 
-        state = std::move(state).write(PhysAddr{address}, data.data(), size);
+        state.write_block(PhysAddr{address}, data.data(), size);
     }
 
     return state;
@@ -128,7 +145,7 @@ ArchState ArchState::load_elf(ELFIO::elfio& reader) const
 
         contents.assign(memory_size, 0);
         std::copy_n(seg->get_data(), file_size, contents.begin());
-        state = std::move(state).write(PhysAddr{seg->get_physical_address()}, contents.data(), contents.size());
+        state.write_block(PhysAddr{seg->get_physical_address()}, contents.data(), contents.size());
     }
     return state;
 }
