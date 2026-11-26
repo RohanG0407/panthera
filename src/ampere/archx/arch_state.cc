@@ -6,6 +6,9 @@
 #include "ampere/archx/arch_state.h"
 #include "ampere/sc/report.h"
 #include <inttypes.h>
+#include <algorithm>
+#include <stdexcept>
+#include <vector>
 #include <fmt/format.h>
 
 namespace ampere {
@@ -107,13 +110,25 @@ ArchState ArchState::load_elf(ELFIO::elfio& reader) const
     if (host_little_endian != elf_little_endian)
         throw std::runtime_error("Host and ELF byte order do not match");
 
+    // What a segment has in memory: its bytes from the file, and then zeros for what the file does not hold of it,
+    // which is the end of a segment that ends in a .bss and all of one that is nothing else
+    std::vector<uint8_t> contents;
+
     for (int i = 0; i < reader.segments.size(); ++i) {
         const ELFIO::segment* seg = reader.segments[i];
         if (seg->get_type() != PT_LOAD)
             continue;
 
-        state = std::move(state).write(
-            PhysAddr{seg->get_physical_address()}, (const uint8_t*)seg->get_data(), seg->get_memory_size());
+        const size_t memory_size = seg->get_memory_size();
+        const size_t file_size = std::min<size_t>(seg->get_file_size(), memory_size);
+
+        // ELFIO reads nothing for a segment that the file is too short to hold
+        if (file_size && !seg->get_data())
+            throw std::runtime_error(fmt::format("ELF segment {} is larger than the file", i));
+
+        contents.assign(memory_size, 0);
+        std::copy_n(seg->get_data(), file_size, contents.begin());
+        state = std::move(state).write(PhysAddr{seg->get_physical_address()}, contents.data(), contents.size());
     }
     return state;
 }

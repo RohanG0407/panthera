@@ -4,6 +4,15 @@
 //
 
 #include <gtest/gtest.h>
+#include <bit>
+#include <cstdint>
+#include <optional>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <vector>
+#include <elfio/elfio.hpp>
+#include <fmt/format.h>
 #include "ampere/archx/arch_state.h"
 
 namespace ampere {
@@ -243,6 +252,129 @@ TEST(testArchState, testInterspersedWrites)
     ASSERT_EQ(state.read(TTBR1_EL1), 0xdeadbeefdeaddead);
     state = std::move(state).write(0x7fffffff000047d8_pa, (uint64_t)0);
     ASSERT_EQ(state.read(0x7fffffff000047d8_pa), 0);
+}
+
+struct ElfSegment
+{
+    uint32_t type;
+    uint64_t address;
+    std::vector<uint8_t> file_bytes;
+    uint64_t memory_size;
+    // The size in the file that the program header states, when it is not the number of bytes that are there
+    std::optional<uint64_t> stated_file_size{};
+};
+
+// The bytes of an ELF64 file in the byte order of the host, with the given segments and no sections
+std::string elf_file(const std::vector<ElfSegment>& segments)
+{
+    ELFIO::Elf64_Ehdr header{};
+    header.e_ident[EI_MAG0] = ELFMAG0;
+    header.e_ident[EI_MAG1] = ELFMAG1;
+    header.e_ident[EI_MAG2] = ELFMAG2;
+    header.e_ident[EI_MAG3] = ELFMAG3;
+    header.e_ident[EI_CLASS] = ELFCLASS64;
+    header.e_ident[EI_DATA] = std::endian::native == std::endian::little ? ELFDATA2LSB : ELFDATA2MSB;
+    header.e_ident[EI_VERSION] = EV_CURRENT;
+    header.e_type = ET_EXEC;
+    header.e_machine = EM_AARCH64;
+    header.e_version = EV_CURRENT;
+    header.e_phoff = sizeof(header);
+    header.e_ehsize = sizeof(header);
+    header.e_phentsize = sizeof(ELFIO::Elf64_Phdr);
+    header.e_phnum = segments.size();
+    header.e_shentsize = sizeof(ELFIO::Elf64_Shdr);
+
+    std::string file(reinterpret_cast<const char*>(&header), sizeof(header));
+    std::string contents;
+    const uint64_t contents_offset = sizeof(header) + segments.size() * sizeof(ELFIO::Elf64_Phdr);
+
+    for (const auto& segment : segments) {
+        ELFIO::Elf64_Phdr program_header{};
+        program_header.p_type = segment.type;
+        program_header.p_offset = contents_offset + contents.size();
+        program_header.p_vaddr = segment.address;
+        program_header.p_paddr = segment.address;
+        program_header.p_filesz = segment.stated_file_size.value_or(segment.file_bytes.size());
+        program_header.p_memsz = segment.memory_size;
+        file.append(reinterpret_cast<const char*>(&program_header), sizeof(program_header));
+        contents.append(segment.file_bytes.begin(), segment.file_bytes.end());
+    }
+
+    return file + contents;
+}
+
+ArchState load_elf_file(const ArchState& state, const std::vector<ElfSegment>& segments)
+{
+    std::istringstream stream{elf_file(segments)};
+    ELFIO::elfio reader;
+    if (!reader.load(stream))
+        throw std::logic_error{"ELFIO did not load the test's ELF file"};
+    return state.load_elf(reader);
+}
+
+// A state in which every word from first to last holds all ones
+ArchState state_of_ones(uint64_t first, uint64_t last)
+{
+    ArchState state;
+    for (uint64_t address = first; address <= last; address += 8)
+        state = std::move(state).write(PhysAddr{address}, UINT64_MAX);
+    return state;
+}
+
+TEST(testLoadElf, loadsTheBytesOfLoadSegmentsOnly)
+{
+    const auto state = load_elf_file(ArchState{},
+                                     {{PT_LOAD, 0x1000, {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}, 8},
+                                      {PT_NOTE, 0x2000, {0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa}, 8},
+                                      {PT_LOAD, 0x3003, {0x11, 0x22, 0x33}, 3}});
+
+    EXPECT_EQ(state.read(0x1000_pa), 0x0807060504030201);
+    EXPECT_EQ(state.read(0x2000_pa), 0);
+    EXPECT_EQ(state.read(0x3000_pa), 0x0000332211000000);
+}
+
+TEST(testLoadElf, zeroesTheRestOfASegmentThatEndsInBss)
+{
+    // 12 bytes from the file and then 8189 of .bss, with neither end of the segment on a word boundary
+    const auto before = state_of_ones(0x3ff8, 0x6010);
+    const auto state = load_elf_file(
+        before, {{PT_LOAD, 0x4004, {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c}, 0x2009}});
+
+    EXPECT_EQ(state.read(0x3ff8_pa), UINT64_MAX);
+    EXPECT_EQ(state.read(0x4000_pa), 0x04030201ffffffff);
+    EXPECT_EQ(state.read(0x4008_pa), 0x0c0b0a0908070605);
+    for (uint64_t address = 0x4010; address < 0x6008; address += 8)
+        ASSERT_EQ(state.read(PhysAddr{address}), 0) << fmt::format("at {:#x}", address);
+    EXPECT_EQ(state.read(0x6008_pa), 0xffffff0000000000);
+    EXPECT_EQ(state.read(0x6010_pa), UINT64_MAX);
+
+    // The state that was loaded into is as it was
+    EXPECT_EQ(before.read(0x4008_pa), UINT64_MAX);
+}
+
+TEST(testLoadElf, zeroesASegmentThatIsAllBss)
+{
+    const auto state = load_elf_file(state_of_ones(0x8000, 0x8028), {{PT_LOAD, 0x8008, {}, 0x20}});
+
+    EXPECT_EQ(state.read(0x8000_pa), UINT64_MAX);
+    for (uint64_t address = 0x8008; address < 0x8028; address += 8)
+        EXPECT_EQ(state.read(PhysAddr{address}), 0) << fmt::format("at {:#x}", address);
+    EXPECT_EQ(state.read(0x8028_pa), UINT64_MAX);
+}
+
+TEST(testLoadElf, loadsNoMoreThanASegmentHasInMemory)
+{
+    const auto state =
+        load_elf_file(state_of_ones(0x9000, 0x9008),
+                      {{PT_LOAD, 0x9000, {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c}, 8}});
+
+    EXPECT_EQ(state.read(0x9000_pa), 0x0807060504030201);
+    EXPECT_EQ(state.read(0x9008_pa), UINT64_MAX);
+}
+
+TEST(testLoadElf, throwsForASegmentLargerThanTheFile)
+{
+    EXPECT_THROW(load_elf_file(ArchState{}, {{PT_LOAD, 0xa000, {0x01, 0x02}, 0x100000, 0x100000}}), std::runtime_error);
 }
 
 } // namespace arch_state
