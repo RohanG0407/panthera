@@ -660,6 +660,44 @@ TEST_F(ParameterRegistryTest, CanMergeJSONAcrossConfigs)
     EXPECT_EQ(setting->value(), std::vector<int>({1, 2, 3, 4}));
 }
 
+TEST_F(ParameterRegistryTest, RegexAddendumMergesIntoEveryParameterItMatches)
+{
+    add_setting("core_0.list", "[1]"_json);
+    add_setting("core_1.list", "[10]"_json);
+    add_setting("+~core_[0-9]+\\.list", "[2]"_json);
+
+    auto first = match_setting("core_0.list");
+    auto second = match_setting("core_1.list");
+    ASSERT_TRUE(first);
+    ASSERT_TRUE(second);
+    EXPECT_EQ(first->value(), std::vector<int>({1, 2}));
+    EXPECT_EQ(second->value(), std::vector<int>({10, 2}));
+    EXPECT_FALSE(match_setting("core_x.list"));
+    EXPECT_TRUE(check_all_matched());
+}
+
+TEST_F(ParameterRegistryTest, RegexAddendumIsNotMatchedAsAName)
+{
+    add_setting("+~foo.bar", "[2]"_json);
+
+    EXPECT_FALSE(match_setting("~foo.bar"));
+    auto setting = match_setting("foo_bar");
+    ASSERT_TRUE(setting);
+    EXPECT_EQ(setting->value(), std::vector<int>({2}));
+}
+
+TEST_F(ParameterRegistryTest, CanMergeJSONInConfigAtRegexScope)
+{
+    // The addenda of the configs become "+~core_[0-9]+\.bar\.param"
+    add_setting("core_0.bar.param", "[1]"_json);
+    add_setting("~core_[0-9]+:cfg", testfixture("inner_append_json.cfg"));
+
+    auto setting = match_setting("core_0.bar.param");
+    ASSERT_TRUE(setting);
+    EXPECT_EQ(setting->value(), std::vector<int>({1, 2, 3}));
+    EXPECT_TRUE(check_all_matched());
+}
+
 TEST_F(ParameterRegistryTest, CanLoadJSONFromFileWithinArgs)
 {
     auto path = "@" + testfixture("values.json");

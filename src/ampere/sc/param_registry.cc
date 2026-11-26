@@ -966,9 +966,11 @@ void ParameterRegistry::Setting::setup_pattern()
     if (pattern[0] == '+') {
         addendum = true;
         pattern = pattern.substr(1);
-    } else if (pattern[0] == '~') {
-        pattern_re.emplace(pattern.substr(1));
     }
+
+    // An addendum may name its parameters by a regular expression too: "+~<regex>"
+    if (pattern.starts_with('~'))
+        pattern_re.emplace(pattern.substr(1));
 }
 
 ParameterRegistry::Setting::Setting(std::string pattern, json value, std::string whence)

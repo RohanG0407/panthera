@@ -126,6 +126,9 @@ JSON values can also be merged with:
     +<param> { ... }
     +<param> [ ... ]
     +<param> @<file>
+    +~<regex> [ ... ]
+
+With a regex, the value is merged into every parameter that the regex matches. The same happens to an addendum in a config file that is loaded at a regex scope.
 
 Merging rules for the parameter values are:
 
