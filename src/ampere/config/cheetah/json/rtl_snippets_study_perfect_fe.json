@@ -11,9 +11,8 @@
             "+capture", "{name}.es"
         ],
         "parameters": [
-            "-cfg", "{panthera_root}/config/model/sys/siryn.cfg",
-            "-cfg", "{panthera_root}/config/model/sys/siryn-core-rtl.cfg",
             "-cfg", "{panthera_root}/config/model/sys/siryn-perfect-frontend.cfg",
+            "-cfg", "{panthera_root}/config/model/sys/siryn-core-rtl-settings.cfg",
             "-event_stream_always", "true",
             "-sys.soc_0.memory_[0-3]+.max_throughput", "128",
             "-sys.soc_0.core_0.instruction_stream_name", "{workload_path}",
