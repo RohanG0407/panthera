@@ -10,6 +10,7 @@
 const auto soc_configs = testing::Values("sys/siryn.cfg",
                                          "sys/siryn-rate1.cfg",
                                          "sys/siryn-rate1-aggressive.cfg",
+                                         "sys/siryn-rate1-projections.cfg",
                                          "sys/siryn-rateN.cfg",
                                          "sys/siryn-core-rtl.cfg",
                                          "sys/siryn-perfect-frontend.cfg",
