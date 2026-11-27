@@ -6,8 +6,12 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 #include <boost/filesystem/operations.hpp>
+#include <regex>
 #include <sstream>
 #include <stdexcept>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "ampere/sc/module.h"
 #include "ampere/sc/param.h"
@@ -72,6 +76,126 @@ TEST_F(ParameterRegistryTest, RegexWithDotActsLikeRegex)
     add_setting("~foo.bar", "yes");
     ASSERT_TRUE(match_setting("foo.bar"));
     ASSERT_TRUE(match_setting("foo_bar"));
+}
+
+// A pattern rules out most parameters by how they start and end, without running its regular expression. That
+// must never change which parameters it matches.
+TEST(ParameterSettingTest, PatternMatchesWhatItsRegexMatches)
+{
+    const std::vector<std::string> patterns = {
+        "sys\\.soc_0\\.core_0\\.lsu\\.?.*\\.load_pipelines",
+        "sys\\.soc_0\\.core_0\\..*num_execution_units",
+        ".*num_execution_units",
+        "lsu_to_ixu_mem[0-9]+_writeback.bandwidth",
+        "bank_[0-9]+\\.size",
+        "abc",
+        "ab*",
+        "ab*c",
+        "ab+c",
+        "ab?",
+        "a{2}b",
+        "ab{2}",
+        "a|bc",
+        "x(a|b)y",
+        "(ab)?c",
+        "ab(c)?",
+        "[ab]c[de]",
+        "\\d+x",
+        "x\\d",
+        "a\\x41",
+        "\\\\.a",
+        "a.",
+        ".a",
+        "a\\.",
+        "\\.a",
+        "a.*a",
+        "",
+        ".*",
+    };
+    const std::vector<std::string> names = {
+        "",
+        "a",
+        "b",
+        "c",
+        "ab",
+        "ac",
+        "bc",
+        "aa",
+        "aab",
+        "abb",
+        "abc",
+        "abbc",
+        "abbbb",
+        "xay",
+        "xby",
+        "xcy",
+        "acd",
+        "bce",
+        "7x",
+        "77x",
+        "x7",
+        "aA",
+        "a41",
+        "\\.a",
+        "\\xa",
+        "a.",
+        "ax",
+        ".a",
+        "xa",
+        "aba",
+        "sys.soc_0.core_0.lsu.load_pipelines",
+        "sys.soc_0.core_0.lsu.x.load_pipelines",
+        "sys.soc_0.core_0.lsuload_pipelines",
+        "sys.soc_0.core_0.lsu.load_pipelinesx",
+        "sys.soc_0.core_1.lsu.load_pipelines",
+        "sys_soc_0.core_0.lsu.load_pipelines",
+        "sys.soc_0.core_0.ixu.num_execution_units",
+        "sys.soc_0.core_0.num_execution_units",
+        "num_execution_units",
+        "xnum_execution_units",
+        "num_execution_unitsx",
+        "lsu_to_ixu_mem12_writeback.bandwidth",
+        "lsu_to_ixu_mem12_writebackxbandwidth",
+        "lsu_to_ixu_mem_writeback.bandwidth",
+        "bank_3.size",
+        "bank_33.size",
+        "bank_.size",
+        "bank_3xsize",
+        "bank_3.sizes",
+    };
+
+    for (const auto& pattern : patterns) {
+        const ParameterRegistry::Setting setting("~" + pattern, 1, "unit test");
+        const std::regex regex(pattern);
+        for (const auto& name : names)
+            EXPECT_EQ(setting.matches(name), std::regex_match(name, regex)) << "~" << pattern << " and " << name;
+    }
+}
+
+TEST(ParameterSettingTest, PatternRequiredEnds)
+{
+    const auto ends = [](const std::string& pattern) {
+        const ParameterRegistry::Setting setting("~" + pattern, 1, "unit test");
+        return std::pair{setting.required_prefix, setting.required_suffix};
+    };
+
+    // The scope of a configuration file and a parameter's own name are what rule most parameters out
+    EXPECT_EQ(ends("sys\\.soc_0\\.core_0\\.lsu\\.?.*\\.load_pipelines"),
+              (std::pair<std::string, std::string>{"sys.soc_0.core_0.lsu", ".load_pipelines"}));
+    EXPECT_EQ(ends(".*num_execution_units"), (std::pair<std::string, std::string>{"", "num_execution_units"}));
+    EXPECT_EQ(ends("bank_[0-9]+\\.size"), (std::pair<std::string, std::string>{"bank_", ".size"}));
+    EXPECT_EQ(ends("abc"), (std::pair<std::string, std::string>{"abc", "abc"}));
+
+    // A dot that is not escaped stands for any character
+    EXPECT_EQ(ends("lsu_to_ixu.latency"), (std::pair<std::string, std::string>{"lsu_to_ixu", "latency"}));
+
+    // What a quantifier follows may not be there
+    EXPECT_EQ(ends("ab*c"), (std::pair<std::string, std::string>{"a", "c"}));
+    EXPECT_EQ(ends("ab?"), (std::pair<std::string, std::string>{"a", ""}));
+
+    // Nothing is required of an expression with alternatives, or with a backslash that does not escape a dot
+    EXPECT_EQ(ends("abc|abd"), (std::pair<std::string, std::string>{}));
+    EXPECT_EQ(ends("a\\d+b"), (std::pair<std::string, std::string>{}));
 }
 
 TEST_F(ParameterRegistryTest, FindReturnsLastMatchingValue)

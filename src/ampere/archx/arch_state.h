@@ -5,6 +5,7 @@
 #pragma once
 #include <cstdint>
 
+#include <boost/smart_ptr/local_shared_ptr.hpp>
 #include <immer/map.hpp>
 #include <elfio/elfio.hpp>
 
@@ -65,9 +66,21 @@ private:
     using vfp_reg_map = unsafe_immer_map<LReg, std::array<uint64_t, 2>>;
     using pred_reg_map = unsafe_immer_map<LReg, pred_reg_t>;
 
+    class MemoryImage;
+
     ArchState raw_write(PhysAddr addr, uint64_t value, uint64_t mask) const;
     uint64_t raw_read(uint64_t addr, size_t size = 8) const;
+    uint64_t read_word(uint64_t aligned) const;
+    // Write a block to this state's own memory
+    void write_block(PhysAddr addr, const uint8_t* data, size_t size);
+    // A copy of all of this state's memory, as an image that more can be loaded into
+    boost::local_shared_ptr<MemoryImage> image_to_load_into() const;
 
+    // The memory image that was loaded, which every state that comes from the one it was loaded into shares.
+    // States are copied constantly and are not shared between threads, so its count is not atomic, like the
+    // counts of the maps below.
+    boost::local_shared_ptr<const MemoryImage> image;
+    // The words written since the image was loaded, which take the place of the image's
     memory_map memory;
     gp_reg_map gp_registers;
     vfp_reg_map vfp_registers;

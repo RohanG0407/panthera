@@ -17,9 +17,15 @@
 namespace ampere {
 
 ProtobufStreamWriter::ProtobufStreamWriter(int fd, uint32_t magic_number, uint32_t version)
-    : output_stream{boost::make_unique<google::protobuf::io::FileOutputStream>(fd)}
 {
+    start(fd, magic_number, version);
+}
+
+void ProtobufStreamWriter::start(int fd, uint32_t magic_number, uint32_t version)
+{
+    output_stream = boost::make_unique<google::protobuf::io::FileOutputStream>(fd);
     writeHeaderTo(magic_number, version, output_stream.get());
+    coded_stream = boost::make_unique<google::protobuf::io::CodedOutputStream>(output_stream.get());
     flush();
 }
 
@@ -57,15 +63,13 @@ ProtobufStreamWriter::ProtobufStreamWriter(boost::filesystem::path filepath,
             throw std::system_error(errno, std::system_category(), filepath.string());
         }
     }
-    output_stream = boost::make_unique<google::protobuf::io::FileOutputStream>(fileno(fp));
-
-    writeHeaderTo(magic_number, version, output_stream.get());
-    flush();
+    start(fileno(fp), magic_number, version);
 }
 
 ProtobufStreamWriter::~ProtobufStreamWriter()
 {
     flush();
+    coded_stream.reset();
     if (fp != nullptr) {
         if (pclose(fp) == -1) {
             perror("Error calling pclose on xz's fd");
@@ -76,6 +80,7 @@ ProtobufStreamWriter::~ProtobufStreamWriter()
 
 bool ProtobufStreamWriter::flush()
 {
+    coded_stream->Trim();
     return output_stream.get()->Flush();
 }
 

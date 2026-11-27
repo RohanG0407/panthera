@@ -1472,22 +1472,24 @@ void BPU::dump(std::ostream& os) const
 
 static std::string line_prediction_as_string(const LinePrediction& line_prediction)
 {
-    std::ostringstream oss;
+    // One character per slot. This runs for every prediction event, so it avoids the cost of a string stream.
+    std::string str;
+    str.reserve(line_prediction.size());
 
     for (auto& pred : line_prediction) {
         if (is_conditional(pred.branch_type)) {
             bool taken = pred.use_alternate ? pred.alternate.taken : pred.primary.taken;
 
             if (taken)
-                oss << (pred.use_alternate ? 't' : 'T');
+                str += (pred.use_alternate ? 't' : 'T');
             else
-                oss << (pred.use_alternate ? 'n' : 'N');
+                str += (pred.use_alternate ? 'n' : 'N');
         } else {
-            oss << branch_type_char(pred.branch_type);
+            str += branch_type_char(pred.branch_type);
         }
     }
 
-    return oss.str();
+    return str;
 }
 
 } // namespace ampere::core

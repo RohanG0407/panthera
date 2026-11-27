@@ -5,14 +5,15 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include <fmt/base.h>
 #include <fmt/ostream.h>
-
-#include <boost/pool/object_pool.hpp>
 
 #include "ampere/event_stream/event_stream.h"
 #include "ampere/event_stream/event_stream.pb.h"
@@ -27,7 +28,8 @@ class EventStreamProto;
 
 class EventHandleProto : public EventHandleBase
 {
-    event_stream_proto::Event event_proto;
+    // The serialized event_stream_proto::Event, after room for the tag and length that make it a Record
+    std::vector<std::uint8_t> record;
     friend class EventStreamProto;
 };
 
@@ -38,7 +40,6 @@ public:
     explicit EventStreamProto(int fd_writer, int fd_reader);
     explicit EventStreamProto(const std::string& filename) : EventStreamProto(open_file(filename)) {}
 
-    void post_event(EventType event_type, std::uint64_t time) override;
     EventHandle open_event(EventType event_type, std::uint64_t time) override;
     void close_event(EventHandle event) override;
     void add_int_data(EventHandle event, DataType event_data_type, std::int64_t value) override;
@@ -60,7 +61,9 @@ public:
 private:
     std::unique_ptr<ProtobufStreamWriter> ev_writer;
     std::unique_ptr<ProtobufStreamReader> ev_reader;
-    boost::object_pool<EventHandleProto> event_handle_pool{32, 0};
+    // Handles are reused so that their buffers are only allocated once
+    std::deque<EventHandleProto> event_handles;
+    std::vector<EventHandleProto*> free_event_handles;
     std::mutex output_mtx;
 
     int num_events{0};
@@ -83,7 +86,6 @@ private:
     void write(event_stream_proto::Definition& definition);
     void write(event_stream_proto::Definition& definition, int id, bool& enabled);
     void write(event_stream_proto::Enumeration& enumeration);
-    void write(event_stream_proto::Event& event);
     void write(event_stream_proto::Parameter& parameter);
     void write(event_stream_proto::Control& control);
     void write(event_stream_proto::Record& record);

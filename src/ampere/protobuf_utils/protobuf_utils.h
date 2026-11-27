@@ -5,6 +5,8 @@
 #include <google/protobuf/io/coded_stream.h>
 #include <google/protobuf/io/zero_copy_stream.h>
 #include <google/protobuf/message_lite.h>
+#include <cstdint>
+#include <span>
 
 #pragma once
 
@@ -13,6 +15,11 @@ bool writeHeaderTo(uint32_t magic, uint32_t version, google::protobuf::io::ZeroC
 bool readHeaderFrom(google::protobuf::io::ZeroCopyInputStream* rawInput, uint32_t* magic, uint32_t* version);
 bool writeDelimitedTo(const google::protobuf::MessageLite& message,
                       google::protobuf::io::ZeroCopyOutputStream* rawOutput);
+// The same, for a caller that keeps one coded stream open rather than paying for a new one per message
+bool writeDelimitedTo(const google::protobuf::MessageLite& message, google::protobuf::io::CodedOutputStream* output);
+// Write a message that has already been serialized, framed the same way as the overloads above
+bool writeDelimitedTo(std::span<const std::uint8_t> serialized_message,
+                      google::protobuf::io::CodedOutputStream* output);
 bool readDelimitedFrom(google::protobuf::io::ZeroCopyInputStream* rawInput,
                        google::protobuf::MessageLite* message,
                        bool* clean_eof);

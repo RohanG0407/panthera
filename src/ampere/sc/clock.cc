@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 //
 
+#include <cstddef>
 #include <functional>
 #include <memory>
 
@@ -53,11 +54,18 @@ void Clock::tick()
 {
     // Run everything scheduled for this cycle, one phase at a time
     for (auto& phase_list : *this_cycle_runnables) {
-        while (!phase_list.empty()) {
-            auto runnable = phase_list.front();
-            phase_list.pop_front();
-            run_runnable(runnable);
+        // A runnable may schedule others into the phase that is running, so the list can grow while it is walked
+        std::size_t next = 0;
+        try {
+            while (next < phase_list.size())
+                run_runnable(phase_list[next++]);
+        } catch (...) {
+            // Take the runnables that ran off the list, the one that threw among them, so that a tick after this
+            // one goes on with the rest rather than running that one again
+            phase_list.erase(phase_list.begin(), phase_list.begin() + static_cast<std::ptrdiff_t>(next));
+            throw;
         }
+        phase_list.clear();
     }
 
     // If things were scheduled in the future and are now about to happen, move them into the lists
@@ -97,9 +105,10 @@ void Clock::initialize()
 
     schedule_runnables();
 
+    // init() may schedule a runnable for this cycle, so a list can grow while it is walked, as in tick()
     for (auto& phase_list : *this_cycle_runnables)
-        for (auto& runnable : phase_list)
-            runnable->init();
+        for (std::size_t i = 0; i < phase_list.size(); ++i)
+            phase_list[i]->init();
 
     initialized = true;
 }

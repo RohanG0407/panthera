@@ -394,6 +394,10 @@ public:
         std::string whence;
 
         std::optional<std::regex> pattern_re;
+        // What every parameter that pattern_re matches starts and ends with. Every parameter is matched against
+        // every pattern, and nearly all of them can be ruled out by these without running the regular expression.
+        std::string required_prefix;
+        std::string required_suffix;
         bool matched = false;
 
         bool addendum = false;
@@ -410,8 +414,10 @@ public:
 
         bool matches(const std::string& param) const
         {
-            if (pattern_re)
-                return std::regex_match(param, *pattern_re);
+            if (pattern_re) {
+                return param.starts_with(required_prefix) && param.ends_with(required_suffix)
+                       && std::regex_match(param, *pattern_re);
+            }
             return pattern == param;
         }
     };

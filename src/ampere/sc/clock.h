@@ -12,7 +12,6 @@
 #include <set>
 #include <systemc>
 #include <vector>
-#include <list>
 #include <memory>
 
 #include <fmt/format.h>
@@ -90,7 +89,7 @@ private:
         }
     };
 
-    using ScheduleList = std::list<Runnable*>;
+    using ScheduleList = std::vector<Runnable*>;
     using ScheduleVec = std::vector<ScheduleList>;
 
     std::set<ScheduleEntry, CompareScheduleEntries> schedule_queue;

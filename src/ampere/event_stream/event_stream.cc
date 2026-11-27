@@ -36,6 +36,7 @@ EventType EventStream::Definitions::define_event(EventBase* event)
 {
     std::unique_lock<std::mutex> lock{definitions_mtx};
     definitions.emplace_back(DefType::EVENT, event->name, event->description);
+    ++current_revision;
     events.insert({definitions.size(), event});
     return definitions.size(); // FIXME: narrowing conversion
 }
@@ -44,6 +45,7 @@ EventType EventStream::Definitions::define_event(const std::string& name, const 
 {
     std::unique_lock<std::mutex> lock{definitions_mtx};
     definitions.emplace_back(DefType::EVENT, name, description);
+    ++current_revision;
     return definitions.size(); // FIXME: narrowing conversion
 }
 
@@ -51,6 +53,7 @@ DataType EventStream::Definitions::define_data(const std::string& name, const st
 {
     std::unique_lock<std::mutex> lock{definitions_mtx};
     definitions.emplace_back(DefType::DATA, name, description);
+    ++current_revision;
     return definitions.size(); // FIXME: narrowing conversion
 }
 
@@ -60,6 +63,7 @@ DataType EventStream::Definitions::define_data(const std::string& name,
 {
     std::unique_lock<std::mutex> lock{definitions_mtx};
     definitions.emplace_back(DefType::DATA, name, description, enumeration);
+    ++current_revision;
     return definitions.size(); // FIXME: narrowing conversion
 }
 
@@ -88,6 +92,7 @@ void EventStream::Definitions::clear()
 {
     std::unique_lock<std::mutex> lock{definitions_mtx};
     definitions.clear();
+    ++current_revision;
 }
 
 EnumType EventStream::Enumerations::reserve_enum(std::type_index enum_type)
@@ -99,6 +104,7 @@ EnumType EventStream::Enumerations::reserve_enum(std::type_index enum_type)
     auto enum_id = this->enumerations.size();
     this->enumerations.emplace_back();
     enumeration_types.emplace(enum_type, enum_id);
+    ++current_revision;
     return enum_id;
 }
 
@@ -117,6 +123,7 @@ EnumType EventStream::Enumerations::define_enum(std::type_index enum_type, const
     auto enum_id = this->enumerations.size();
     this->enumerations.emplace_back(enumerations);
     enumeration_types.emplace(enum_type, enum_id);
+    ++current_revision;
     return enum_id;
 }
 
@@ -132,6 +139,7 @@ EnumType EventStream::Enumerations::define_enum(size_t id, const EnumMappingType
     auto enum_id = this->enumerations.size();
     this->enumerations.emplace_back(enumerations);
     enumeration_types.emplace(id, enum_id);
+    ++current_revision;
     return enum_id;
 }
 
@@ -144,10 +152,12 @@ EnumType EventStream::Enumerations::provide_enum(std::type_index enum_type, cons
 
     auto enum_id = existing->second;
     auto& enum_values = this->enumerations[enum_id];
-    if (enum_values.empty())
+    if (enum_values.empty()) {
         this->enumerations[enum_id] = enumerations;
-    else if (this->enumerations[existing->second] != enumerations)
+        ++current_revision;
+    } else if (this->enumerations[existing->second] != enumerations) {
         throw std::logic_error("Enumeration was defined with different values");
+    }
 
     return enum_id;
 }
@@ -172,6 +182,7 @@ void EventStream::Enumerations::clear()
     std::unique_lock<std::mutex> lock{enumerations_mtx};
     enumerations.clear();
     enumeration_types.clear();
+    ++current_revision;
 }
 
 static size_t hash_enum_mappings(const EnumMappingType& enumerations)
@@ -282,11 +293,19 @@ EnumType EventStream::provide_global_enum(std::type_index enum_type, const EnumM
 
 void EventStream::catch_up(bool complete)
 {
-    definition_index = definitions->catch_up(*this, definition_index);
+    // This runs for every event, and catching up takes a lock, so only do it when there is something new. The
+    // revision is read before catching up: a change that slips in between is caught up on now or the next time.
+    if (const auto revision = definitions->revision(); revision != definitions_revision) {
+        definition_index = definitions->catch_up(*this, definition_index);
+        definitions_revision = revision;
+    }
     if (complete && !definitions->caught_up(definition_index))
         throw std::logic_error("Not all definitions finalized");
 
-    enumeration_index = enumerations->catch_up(*this, enumeration_index);
+    if (const auto revision = enumerations->revision(); revision != enumerations_revision) {
+        enumeration_index = enumerations->catch_up(*this, enumeration_index);
+        enumerations_revision = revision;
+    }
     if (complete && !enumerations->caught_up(enumeration_index))
         throw std::logic_error("Not all enumerations finalized");
 }

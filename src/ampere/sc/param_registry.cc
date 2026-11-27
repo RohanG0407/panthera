@@ -15,6 +15,7 @@
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/filesystem/operations.hpp>
 #include <boost/filesystem/path.hpp>
+#include <cctype>
 #include <cstddef>
 #include <cstring>
 #include <fstream>
@@ -24,6 +25,9 @@
 #include <regex>
 #include <stdexcept>
 #include <string>
+#include <string_view>
+#include <tuple>
+#include <utility>
 
 #include <boost/iostreams/char_traits.hpp>
 #include <boost/iostreams/concepts.hpp>
@@ -958,6 +962,54 @@ void ParameterRegistry::clear()
     cfg_settings.clear();
 }
 
+// The text that everything `regex` matches in full has to start with and end with: the runs of characters at its
+// two ends that stand for themselves. Either can be empty, and both are when the expression has something in it
+// that could make such a run optional or mean something else.
+static std::pair<std::string, std::string> required_ends(const std::string& regex)
+{
+    const auto is_word = [](char c) {
+        return std::isalnum(static_cast<unsigned char>(c)) || c == '_';
+    };
+    const auto size = regex.size();
+
+    // With alternatives, neither end has to be there. A backslash is only understood in front of a dot; in front
+    // of a letter or digit it changes what that means, which the scans below would get wrong.
+    for (std::size_t i = 0; i < size; ++i) {
+        if (regex[i] == '|')
+            return {};
+        if (regex[i] == '\\') {
+            if (i + 1 == size || regex[i + 1] != '.')
+                return {};
+            ++i;
+        }
+    }
+
+    std::string prefix;
+    for (std::size_t i = 0; i < size;) {
+        const bool escaped_dot = regex[i] == '\\';
+        if (!escaped_dot && !is_word(regex[i]))
+            break;
+        const auto next = i + (escaped_dot ? 2 : 1);
+        // A character that a quantifier follows may be repeated or left out
+        if (next < size && std::string_view{"*?+{"}.find(regex[next]) != std::string_view::npos)
+            break;
+        prefix += escaped_dot ? '.' : regex[i];
+        i = next;
+    }
+
+    // Quantifiers come after what they apply to, so nothing at the end of the expression has one
+    std::string suffix;
+    for (std::size_t i = size; i > 0;) {
+        const bool escaped_dot = regex[i - 1] == '.' && i > 1 && regex[i - 2] == '\\';
+        if (!escaped_dot && !is_word(regex[i - 1]))
+            break;
+        suffix.insert(suffix.begin(), regex[i - 1]);
+        i -= escaped_dot ? 2 : 1;
+    }
+
+    return {prefix, suffix};
+}
+
 void ParameterRegistry::Setting::setup_pattern()
 {
     if (pattern.empty())
@@ -969,8 +1021,10 @@ void ParameterRegistry::Setting::setup_pattern()
     }
 
     // An addendum may name its parameters by a regular expression too: "+~<regex>"
-    if (pattern.starts_with('~'))
+    if (pattern.starts_with('~')) {
         pattern_re.emplace(pattern.substr(1));
+        std::tie(required_prefix, required_suffix) = required_ends(pattern.substr(1));
+    }
 }
 
 ParameterRegistry::Setting::Setting(std::string pattern, json value, std::string whence)
