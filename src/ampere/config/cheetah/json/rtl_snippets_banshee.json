@@ -10,7 +10,6 @@
             "@base.cfg", "+capture", "{name}.es"
         ],
         "parameters": [
-            "-cfg", "{panthera_root}/config/model/sys/banshee.cfg",
             "-cfg", "{panthera_root}/config/model/sys/banshee-core-rtl.cfg",
             "-event_stream_always", "true",
             "-sys.soc_0.core_0.instruction_stream_name", "{workload_path}",
