@@ -13,7 +13,6 @@
         "parameters": [
             "-cfg", "{panthera_root}/config/model/sys/siryn-core-rtl.cfg",
             "-event_stream_always", "true",
-            "-sys.soc_0.memory_[0-3]+.max_throughput", "128",
             "-sys.soc_0.core_0.instruction_stream_name", "{workload_path}",
             "-sys.soc_0.core_0.speculative_memory_image", "true",
             "-sys.soc_0.core_0.gpc.max_instructions", "10000"
